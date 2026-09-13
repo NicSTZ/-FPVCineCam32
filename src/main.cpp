@@ -29,16 +29,20 @@ static bool recordSwitchState(bool& valid) {
     return settings.recordActiveHigh ? value > settings.recordThreshold : value < settings.recordThreshold;
 }
 
-static String osdText() {
+static String osdStatusText() {
     const CameraState& c = camera.state();
-    if (!c.connected) return "BMD OFFLINE";
-    if (camera.waitingForPasskey()) return "BMD ENTER PIN";
-    if (c.recording) {
-        String s = "REC "; s += c.timecode;
-        return s;
-    }
-    if (c.ready || c.paired) { String s="BMD STBY "; s += c.timecode; return s; }
-    return c.status;
+    if (!c.connected) return "CAM OFFLINE";
+    if (camera.waitingForPasskey()) return "CAM ENTER PIN";
+    if (c.recording) return "REC";
+    if (c.controlReady || c.ready || c.paired) return "STBY";
+    return "CAM WAIT";
+}
+
+static String osdMediaText() {
+    const CameraState& c = camera.state();
+    if (!c.connected) return "MEDIA --";
+    if (c.mediaRemaining.length() && c.mediaRemaining != "--") return "LEFT " + c.mediaRemaining;
+    return "MEDIA --";
 }
 
 void setup() {
@@ -91,7 +95,14 @@ void loop() {
         }
     }
 
-    if(now-lastOsdUpdate>=500){ lastOsdUpdate=now; msp.setCustomText(settings.osdSlot,osdText()); }
+    if(now-lastOsdUpdate>=500){
+        lastOsdUpdate=now;
+        msp.setCustomText(settings.osdSlot, osdStatusText());
+        // v0.9 uses the next Custom Message slot for media remaining. Until we
+        // have decoded the Pocket 4K's media-remaining BLE payload this cleanly
+        // shows MEDIA -- instead of bogus timecode data.
+        if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
+    }
 
     // Development build: Wi-Fi stays on so live MSP channels/diagnostics can be observed.
     delay(2);

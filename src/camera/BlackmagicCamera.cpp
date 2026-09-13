@@ -337,7 +337,14 @@ bool BlackmagicCamera::setRecording(bool on) {
     const uint8_t* packet = on ? recPacket : stopPacket;
     camState.lastCommand = on ? "REC" : "STOP";
     bool ok = writeControlPacket(packet, 12);
-    camState.status = ok ? (on ? "REC SENT" : "STOP SENT") : (on ? "REC WRITE FAIL" : "STOP WRITE FAIL");
+    if (ok) {
+        // Make the OSD react immediately to the command we just successfully sent.
+        // Incoming camera notifications can subsequently confirm/correct this state.
+        camState.recording = on;
+        camState.status = on ? "REC" : "BMD READY";
+    } else {
+        camState.status = on ? "REC WRITE FAIL" : "STOP WRITE FAIL";
+    }
     return ok;
 }
 
@@ -379,22 +386,44 @@ void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
 }
 
 void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
+    // Keep a short raw snapshot in the web diagnostics. This is invaluable when a
+    // camera firmware revision sends a packet we have not decoded yet.
+    String hex;
+    const size_t dumpLen = len > 48 ? 48 : len;
+    for (size_t i = 0; i < dumpLen; i++) {
+        char b[4];
+        snprintf(b, sizeof(b), "%02X", (unsigned)data[i]);
+        if (i) hex += ' ';
+        hex += b;
+    }
+    camState.lastIncoming = hex;
+
     size_t p = 0;
     while (p + 4 <= len) {
-        uint8_t cmdLen = data[p + 1];
-        size_t raw = 4 + cmdLen;
-        size_t padded = (raw + 3) & ~((size_t)3);
-        if (p + raw > len || cmdLen < 4) break;
-        uint8_t cmd = data[p + 2];
-        if (cmd == 0) {
-            uint8_t category = data[p + 4], parameter = data[p + 5];
-            if (category == 10 && parameter == 1 && cmdLen >= 5) {
-                uint8_t mode = data[p + 8];
+        const uint8_t cmdLen = data[p + 1];
+        const size_t raw = 4u + (size_t)cmdLen;
+        const size_t padded = (raw + 3u) & ~((size_t)3u);
+        if (cmdLen < 4 || p + raw > len) break;
+
+        const uint8_t cmd = data[p + 2];
+        if (cmd == 0) { // Change Configuration
+            const uint8_t category = data[p + 4];
+            const uint8_t parameter = data[p + 5];
+            const uint8_t dataType = data[p + 6];
+            const uint8_t operation = data[p + 7];
+            const size_t valueLen = cmdLen - 4;
+            const uint8_t* value = &data[p + 8];
+
+            // Media / Transport Mode. First int8 value is mode:
+            // 0 Preview, 1 Play, 2 Record.
+            if (category == 10 && parameter == 1 && dataType == 1 && operation == 0 && valueLen >= 1) {
+                const uint8_t mode = value[0];
                 camState.recording = (mode == 2);
                 camState.status = camState.recording ? "REC" : "BMD READY";
             }
         }
-        if (!padded) break;
+
+        if (padded == 0) break;
         p += padded;
     }
 }

@@ -1,88 +1,50 @@
-# FPVCineCam32 v0.8 bench test plan
+# FPVCineCam32 v0.9 test plan
 
-Test one layer at a time.
+## 1. Regression
 
-## 1. Camera regression check
+- Flash v0.9.
+- Confirm the remembered BMPCC 4K reconnects.
+- Confirm the camera badge turns green.
+- Confirm the TX16S record switch still starts/stops the camera.
 
-- Power the ESP32 and BMPCC 4K.
-- Join `FPVCineCam32-XXXX` and open `192.168.4.1`.
-- Confirm the remembered camera reconnects without asking for the PIN again.
-- Press **REC test** and **STOP test**.
-- Confirm the camera actually records/stops and the web state follows it.
+## 2. Record-state OSD
 
-## 2. Wire Betaflight MSP
+Place the selected Custom Message slot in the Betaflight OSD.
 
-ESP32-C3 SuperMini v0.8 uses fixed pins:
+Expected:
 
-- FC TX -> ESP GPIO6 (RX)
-- FC RX -> ESP GPIO7 (TX)
-- GND -> GND
-- MSP baud -> 115200
+- Camera disconnected: `CAM OFFLINE`
+- Camera connected and idle: `STBY`
+- Camera recording: `REC`
 
-In Betaflight Ports, enable MSP on that spare UART only.
+Flip REC/STOP repeatedly. The message should change immediately with the camera command.
 
-## 3. Confirm MSP link
+## 3. Second OSD message
 
-The web Betaflight panel should show:
+Place the next Custom Message slot in Betaflight OSD.
 
-- `MSP connected`
-- API version (expected `1.47` on the current BF 2025.12 setup)
-- live CH1-CH16 values
-- increasing response counter
-- low/zero timeouts
-- zero invalid frames
+Press **Send OSD test**. Expected:
 
-Move sticks/switches and verify the corresponding channel values change.
+- first slot: `REC TEST`
+- second slot: `MEDIA TEST`
 
-## 4. Configure REC/STOP mapping
+Normal operation currently shows `MEDIA --` in the second slot. v0.9 deliberately does not invent a remaining-time value; it captures incoming BLE packet diagnostics so the Pocket 4K media payload can be decoded correctly next.
 
-- Select the desired RC channel. Nic's current default is CH11.
-- Default threshold is 1500.
-- Choose **Above threshold** or **Below threshold** for REC.
-- Save mapping.
-- The selected channel's live value is shown beside the mapping.
+## 4. Camera reconnect
 
-## 5. Full control test
+Power-cycle the BMPCC without rebooting the ESP. Confirm:
 
-With BMPCC connected and control-ready:
+- auto reconnect works
+- badge returns green
+- OSD returns to `STBY`
+- physical record switch still works after reconnect
 
-- Move the selected switch into REC state.
-- Camera should start recording.
-- Move it back into STOP state.
-- Camera should stop recording.
-- Repeat at least 10 times.
-- Power-cycle the ESP32 and repeat without re-pairing.
+## 5. Diagnostic capture for media remaining
 
-## 6. Diagnostics
+Open the web diagnostics and note `lastIncoming` while:
 
-Healthy target:
+1. camera is idle
+2. camera starts recording
+3. media remaining changes on the camera display
 
-- RC responses steadily increase.
-- Invalid frames stay at 0.
-- Timeouts remain 0 or very low.
-- Last RC response time remains low and stable.
-
-Fault isolation:
-
-- No MSP connection/API: check UART selection, crossed TX/RX wiring, common ground, and MSP 115200 in Betaflight.
-- MSP connected but no channel movement: verify receiver channels in Betaflight Receiver tab and MSP_RC responses.
-- Channel moves but camera does not respond: verify mapping threshold/direction and camera `controlReady`.
-- Web REC works but RC control does not: problem is MSP/mapping, not Blackmagic BLE.
-- RC control works: proceed to camera-state -> MSP2 Custom Message -> DJI OSD testing.
-
-## 7. Wi-Fi note
-
-v0.8 intentionally keeps Wi-Fi on indefinitely for bench testing. Restore automatic Wi-Fi shutdown only after MSP and OSD are proven.
-
-
-## v0.8 - Custom Message return path
-
-1. In Betaflight OSD, place Custom Message 1 on the active OSD profile (or select the matching slot in FPVCineCam32).
-2. Power FC + ESP and connect the BMPCC.
-3. Confirm the web UI badge turns green when camera control is ready.
-4. Press **Send OSD test**. The goggles should show `BMD LINK TEST`.
-5. Leave the test button alone and verify the live message changes automatically:
-   - camera off/disconnected -> `BMD OFFLINE`
-   - connected/standby -> `BMD STBY ...`
-   - recording -> `REC ...`
-6. Power-cycle the camera and confirm the badge returns green and the Custom Message recovers without rebooting the ESP.
+This raw packet snapshot is for finishing the remaining-record-time parser without guessing.

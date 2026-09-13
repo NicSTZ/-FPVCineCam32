@@ -11,6 +11,8 @@ struct CameraState {
     int whiteBalance = -1;
     float fps = 0.0f;
     String timecode = "--:--:--:--";
+    String mediaRemaining = "--";
+    String lastIncoming = "";
     String model = "";
     String protocolVersion = "";
     String status = "OFFLINE";
