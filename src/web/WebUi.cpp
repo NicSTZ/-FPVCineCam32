@@ -3,45 +3,85 @@
 
 const char WebUi::PAGE[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta charset="utf-8"><meta name=viewport content="width=device-width,initial-scale=1"><title>FPVCineCam32</title>
-<style>body{font-family:-apple-system,Arial;max-width:760px;margin:24px auto;padding:0 16px;background:#111;color:#eee}h1{margin-bottom:4px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}button,input,select{font-size:16px;padding:10px;margin:5px;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}pre{white-space:pre-wrap}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}@media(max-width:600px){.grid{grid-template-columns:1fr}}</style></head><body>
-<h1>FPVCineCam32 <small>v0.6</small></h1><div>Blackmagic Pocket Cinema Camera 4K prototype</div>
-<div class=card><h3>Status</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button></div>
-<div class=card><h3>Blackmagic pairing</h3><button onclick=scan()>Scan for cameras</button><div id=cams></div><div id=pin style="display:none"><p class=warn>Enter the 6-digit PIN shown on the BMPCC 4K:</p><input id=pinval inputmode=numeric maxlength=6 placeholder=123456><button onclick=sendPin()>Submit PIN</button></div><br><button onclick=forget()>Forget pairing</button></div>
-<div class=card><h3>Betaflight / MSP</h3><p>Connect <b>FC TX to ESP RX</b>, <b>FC RX to ESP TX</b>, and <b>GND to GND</b>. In Betaflight Ports, enable <b>MSP at 115200</b> on that spare UART. Betaflight 2025.12+ is required for Custom Message OSD.</p><p>Default ESP pins: <b>RX GPIO 6</b>, <b>TX GPIO 7</b>. You can change them below.</p><div class=grid>
-<label>ESP RX GPIO<input id=rx type=number></label><label>ESP TX GPIO<input id=tx type=number></label><label>Baud<input id=baud type=number></label><label>Record channel (1-18)<input id=ch type=number min=1 max=18></label><label>Threshold<input id=thr type=number></label><label>Active<select id=high><option value=1>Above threshold</option><option value=0>Below threshold</option></select></label><label>OSD Custom Message slot<select id=slot><option>0</option><option>1</option><option>2</option><option>3</option></select></label></div><button onclick=save()>Save & reboot</button>
-<p>In Betaflight OSD, place the matching <b>Custom Message</b> element on screen.</p></div>
-<div class=card><h3>Camera test</h3><button onclick="rec(1)">REC</button><button onclick="rec(0)">STOP</button><button onclick=testosd()>Send OSD test</button></div>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:820px;margin:24px auto;padding:0 16px;background:#111;color:#eee}
+h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
+button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
+</style></head><body>
+<h1>FPVCineCam32 <small>v0.7</small></h1><div class=sub>Blackmagic + Betaflight MSP development build</div>
+
+<div class=card><h3>Blackmagic Pocket Cinema Camera</h3>
+<div id=camSummary class=muted>Loading...</div>
+<div id=pin style="display:none"><p class=warn>Enter the 6-digit PIN shown on the BMPCC 4K:</p><input id=pinval inputmode=numeric maxlength=6 placeholder=123456><button onclick=sendPin()>Submit PIN</button></div>
+<p><button onclick=scan()>Scan for cameras</button><span id=cams></span></p>
+<p><button onclick="rec(1)">REC test</button><button onclick="rec(0)">STOP test</button><button onclick=forget()>Forget pairing</button></p>
+<hr style="border-color:#333">
+<h4>REC / STOP switch mapping</h4>
+<div class=grid>
+<label>RC channel<select id=ch></select></label>
+<label>Threshold<input id=thr type=number min=800 max=2200></label>
+<label>Record when<select id=high><option value=1>Above threshold</option><option value=0>Below threshold</option></select></label>
+<label>Live selected channel<input id=selectedValue readonly></label>
+</div>
+<button onclick=saveMapping()>Save mapping</button><span id=saveMsg class=muted></span>
+</div>
+
+<div class=card><h3>Betaflight / MSP</h3>
+<p>ESP32-C3 SuperMini wiring is fixed: <b>FC TX -> GPIO6 (ESP RX)</b>, <b>FC RX -> GPIO7 (ESP TX)</b>, <b>GND -> GND</b>. Enable <b>MSP at 115200</b> on that Betaflight UART.</p>
+<div id=mspSummary class=muted>Waiting for FC...</div>
+<h4>Live RC channels</h4><div id=channels class=channels></div>
+<p class=muted id=mspStats></p>
+<label>OSD Custom Message slot <select id=slot><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
+<button onclick=saveOsd()>Save OSD slot</button><button onclick=testosd()>Send OSD test</button>
+<p class=muted>OSD comes next. For now this build proves FC MSP and RC switch control.</p>
+</div>
+
+<div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button></div>
+
 <script>
 const el=id=>document.getElementById(id);
+for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.textContent='CH'+i;el('ch').appendChild(o)}
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
+function cameraLine(c){
+  const link=c.connected?'Connected':'Offline';
+  const ready=c.controlReady?'Control ready':'Control not ready';
+  const rec=c.recording?'RECORDING':'Standby';
+  return `${link} | ${ready} | ${rec} | ${c.timecode}`;
+}
+function drawChannels(s){
+  const box=el('channels');box.innerHTML='';
+  for(let i=0;i<16;i++){
+    const d=document.createElement('div');d.className='ch'+((i+1)==s.settings.channel?' selected':'');
+    const v=(s.msp.channels&&i<s.msp.channels.length)?s.msp.channels[i]:0;
+    d.innerHTML=`<b>CH${i+1}</b><span>${v||'--'}</span>`;box.appendChild(d);
+  }
+  const idx=s.settings.channel-1;
+  el('selectedValue').value=(s.msp.channels&&idx>=0&&idx<s.msp.channels.length)?s.msp.channels[idx]:'--';
+}
 async function refresh(){
   try{
     const s=await api('/api/status');
     el('status').textContent=JSON.stringify(s,null,2);
     el('pin').style.display=s.camera.waitingPin?'block':'none';
-    el('rx').value=s.settings.rx; el('tx').value=s.settings.tx; el('baud').value=s.settings.baud;
-    el('ch').value=s.settings.channel; el('thr').value=s.settings.threshold; el('high').value=s.settings.high?1:0; el('slot').value=s.settings.slot;
-  }catch(e){el('status').textContent='Status error: '+e.message}
+    el('camSummary').textContent=cameraLine(s.camera)+(s.camera.model?` | ${s.camera.model}`:'');
+    el('mspSummary').textContent=s.msp.connected?`MSP connected | API ${s.msp.api} | last RC response ${s.msp.responseMs} ms`:'MSP offline - check UART wiring and Betaflight Ports';
+    el('mspStats').textContent=`Responses: ${s.msp.responses} | Timeouts: ${s.msp.timeouts} | Invalid frames: ${s.msp.invalidFrames}`;
+    el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;el('slot').value=s.settings.slot;
+    drawChannels(s);
+  }catch(e){el('status').textContent='Status error: '+e.message;el('mspSummary').textContent='ESP web API unavailable'}
 }
 async function scan(){
   el('cams').textContent='Scanning...';
-  try{
-    const x=await api('/api/scan'); el('cams').innerHTML='';
-    if(!x.length){el('cams').textContent='No Blackmagic cameras found';return}
-    x.forEach(c=>{const b=document.createElement('button');b.textContent=(c.name||'Blackmagic')+' '+c.address;b.onclick=()=>connect(c.address,c.type);el('cams').appendChild(b)})
-  }catch(e){el('cams').textContent='Scan error: '+e.message}
+  try{const x=await api('/api/scan');el('cams').innerHTML='';if(!x.length){el('cams').textContent=' No Blackmagic cameras found';return}x.forEach(c=>{const b=document.createElement('button');b.textContent=(c.name||'Blackmagic')+' '+c.address;b.onclick=()=>connect(c.address,c.type);el('cams').appendChild(b)})}catch(e){el('cams').textContent='Scan error: '+e.message}
 }
-async function connect(a,t){
-  el('status').textContent='Connecting to camera...';
-  try{await api('/api/connect?address='+encodeURIComponent(a)+'&type='+t)}catch(e){el('status').textContent='Connect error: '+e.message}
-  setTimeout(refresh,250);
-}
+async function connect(a,t){try{await api('/api/connect?address='+encodeURIComponent(a)+'&type='+t)}catch(e){alert('Connect error: '+e.message)}setTimeout(refresh,250)}
 async function sendPin(){const v=el('pinval').value.trim();if(!/^\d{6}$/.test(v)){alert('Enter the 6-digit PIN shown on the camera');return}await api('/api/pin?value='+v);setTimeout(refresh,400)}
 async function forget(){await api('/api/forget');refresh()}
-async function rec(v){await api('/api/record?on='+v);setTimeout(refresh,300)}
+async function rec(v){await api('/api/record?on='+v);setTimeout(refresh,250)}
+async function saveMapping(){await api(`/api/saveMapping?ch=${el('ch').value}&thr=${el('thr').value}&high=${el('high').value}`);el('saveMsg').textContent='Saved';setTimeout(()=>el('saveMsg').textContent='',1200);refresh()}
+async function saveOsd(){await api('/api/saveOsd?slot='+el('slot').value);refresh()}
 async function testosd(){await api('/api/osdtest')}
-async function save(){const u=`/api/save?rx=${el('rx').value}&tx=${el('tx').value}&baud=${el('baud').value}&ch=${el('ch').value}&thr=${el('thr').value}&high=${el('high').value}&slot=${el('slot').value}`;await api(u);alert('Saved. Device will reboot.')}
-setInterval(refresh,1000);refresh();
+setInterval(refresh,500);refresh();
 </script></body></html>)HTML";
 
 void WebUi::begin(const String& apName) {
@@ -56,8 +96,11 @@ String WebUi::statusJson(){
     const CameraState& c=cam.state();
     String j="{\"camera\":{";
     j += "\"status\":\""+c.status+"\",\"model\":\""+c.model+"\",\"protocol\":\""+c.protocolVersion+"\",\"connected\":"+String(c.connected?"true":"false")+",\"paired\":"+String(c.paired?"true":"false")+",\"ready\":"+String(c.ready?"true":"false")+",\"controlReady\":"+String(c.controlReady?"true":"false")+",\"recording\":"+String(c.recording?"true":"false")+",\"timecode\":\""+c.timecode+"\",\"waitingPin\":"+String(cam.waitingForPasskey()?"true":"false")+",\"lastCommand\":\""+c.lastCommand+"\",\"lastWrite\":\""+c.lastWrite+"\"},";
-    j += "\"msp\":{\"connected\":"+String(mspClient.connected()?"true":"false")+",\"api\":\""+String(mspClient.apiMajor())+"."+String(mspClient.apiMinor())+"\"},";
-    j += "\"settings\":{\"rx\":"+String(s.uartRxPin)+",\"tx\":"+String(s.uartTxPin)+",\"baud\":"+String(s.uartBaud)+",\"channel\":"+String(s.recordChannel)+",\"threshold\":"+String(s.recordThreshold)+",\"high\":"+String(s.recordActiveHigh?"true":"false")+",\"slot\":"+String(s.osdSlot)+"}}";
+    j += "\"msp\":{\"connected\":"+String(mspClient.connected()?"true":"false")+",\"rcFresh\":"+String(mspClient.rcFresh()?"true":"false")+",\"api\":\""+String(mspClient.apiMajor())+"."+String(mspClient.apiMinor())+"\",\"responseMs\":"+String(mspClient.lastResponseMs())+",\"responses\":"+String(mspClient.responses())+",\"timeouts\":"+String(mspClient.timeouts())+",\"invalidFrames\":"+String(mspClient.invalidFrames())+",\"channels\":[";
+    const size_t count = min(mspClient.rcCount(), (size_t)16);
+    for(size_t i=0;i<count;i++){ if(i)j+=','; j+=String(mspClient.rcValue(i)); }
+    j += "]},";
+    j += "\"settings\":{\"rx\":6,\"tx\":7,\"baud\":115200,\"channel\":"+String(s.recordChannel)+",\"threshold\":"+String(s.recordThreshold)+",\"high\":"+String(s.recordActiveHigh?"true":"false")+",\"slot\":"+String(s.osdSlot)+"}}";
     return j;
 }
 
@@ -70,5 +113,6 @@ void WebUi::routes(){
     server.on("/api/forget",HTTP_GET,[this](){cam.forgetPairing();prefs.clearCamera();s.cameraAddress="";server.send(200,"application/json","{\"ok\":true}");});
     server.on("/api/record",HTTP_GET,[this](){bool on=server.arg("on").toInt()!=0;bool ok=cam.setRecording(on);server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
     server.on("/api/osdtest",HTTP_GET,[this](){mspClient.setCustomText(s.osdSlot,"BMD LINK TEST");server.send(200,"application/json","{\"ok\":true}");});
-    server.on("/api/save",HTTP_GET,[this](){s.uartRxPin=server.arg("rx").toInt();s.uartTxPin=server.arg("tx").toInt();s.uartBaud=(uint32_t)server.arg("baud").toInt();s.recordChannel=constrain(server.arg("ch").toInt(),1,18);s.recordThreshold=server.arg("thr").toInt();s.recordActiveHigh=server.arg("high").toInt()!=0;s.osdSlot=constrain(server.arg("slot").toInt(),0,3);prefs.save(s);server.send(200,"application/json","{\"ok\":true}");delay(300);ESP.restart();});
+    server.on("/api/saveMapping",HTTP_GET,[this](){s.recordChannel=constrain(server.arg("ch").toInt(),1,16);s.recordThreshold=constrain(server.arg("thr").toInt(),800,2200);s.recordActiveHigh=server.arg("high").toInt()!=0;prefs.save(s);server.send(200,"application/json","{\"ok\":true}");});
+    server.on("/api/saveOsd",HTTP_GET,[this](){s.osdSlot=constrain(server.arg("slot").toInt(),0,3);prefs.save(s);server.send(200,"application/json","{\"ok\":true}");});
 }

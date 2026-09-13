@@ -13,16 +13,37 @@ public:
     void requestRc();
     void requestApiVersion();
     bool setCustomText(uint8_t slot, const String& text);
+
     bool connected() const { return lastValidFrameMs && (millis() - lastValidFrameMs < 2500); }
+    bool rcFresh() const { return lastRcFrameMs && (millis() - lastRcFrameMs < 500); }
     uint8_t apiMajor() const { return apiMaj; }
     uint8_t apiMinor() const { return apiMin; }
     void onRc(RcCallback cb) { rcCallback = cb; }
+
+    size_t rcCount() const { return cachedRcCount; }
+    uint16_t rcValue(size_t zeroBasedIndex) const {
+        return zeroBasedIndex < cachedRcCount ? cachedRc[zeroBasedIndex] : 0;
+    }
+    uint32_t responses() const { return rcResponses; }
+    uint32_t timeouts() const { return rcTimeouts; }
+    uint32_t invalidFrames() const { return badFrames; }
+    uint32_t lastResponseMs() const { return rcLastResponseMs; }
 
 private:
     HardwareSerial& port;
     RcCallback rcCallback;
     uint32_t lastValidFrameMs = 0;
+    uint32_t lastRcFrameMs = 0;
     uint8_t apiMaj = 0, apiMin = 0;
+
+    uint16_t cachedRc[18]{};
+    size_t cachedRcCount = 0;
+    bool rcRequestPending = false;
+    uint32_t rcRequestSentMs = 0;
+    uint32_t rcResponses = 0;
+    uint32_t rcTimeouts = 0;
+    uint32_t badFrames = 0;
+    uint32_t rcLastResponseMs = 0;
 
     enum class ParseState { IDLE, V1_DIR, V1_SIZE, V1_CMD, V1_PAYLOAD, V1_CSUM,
                             V2_DIR, V2_FLAGS, V2_CMD1, V2_CMD2, V2_SIZE1, V2_SIZE2, V2_PAYLOAD, V2_CRC };

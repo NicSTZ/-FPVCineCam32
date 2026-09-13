@@ -1,26 +1,33 @@
-# FPVCineCam32 v0.6 — BMPCC 4K + Betaflight
+# FPVCineCam32 v0.7 - Betaflight RC control build
 
-## v0.6 pairing diagnostic changes
+Prototype firmware for an **ESP32-C3 SuperMini** linking a Blackmagic Pocket Cinema Camera 4K to Betaflight 2025.12+.
 
-- Camera connect runs in a background FreeRTOS task so the setup webpage remains responsive during BLE security negotiation.
-- Pairing is triggered using Blackmagic's documented method: write `0x01` (Camera Power On) to the encrypted Camera Status characteristic.
-- The camera's model and CCU protocol version are read before pairing when available.
-- Status now exposes detailed connection stages such as `CONNECTING BLE`, `TRIGGERING CAMERA PIN`, `ENTER CAMERA PIN`, `PAIR AUTH OK`, and failure states.
+## What is proven already
 
+- BMPCC 4K BLE scan and secure PIN pairing
+- Bond survives ESP32 power cycles
+- Automatic reconnect
+- Encrypted Blackmagic REC / STOP control
+- Camera record-state and timecode notifications
+- Stable camera control with development Wi-Fi left on
 
-Prototype firmware for an **ESP32-C3 SuperMini** that links a Blackmagic Pocket Cinema Camera 4K to Betaflight 2025.12+.
+## v0.7 goal
 
-## v0.6 goals
+Prove the next part of the flight chain:
 
-- Blackmagic BLE scan, secure pairing and remembered bond
-- BMPCC 4K REC / STOP control
-- Read camera record state + timecode notifications
-- Read Betaflight RC channels over MSP on a spare FC UART
-- Map one AUX channel to camera REC/STOP
-- Write camera status into Betaflight Custom Message 0–3 with `MSP2_SET_TEXT`
-- Self-hosted configuration page over ESP32 Wi-Fi
-- Browser installer scaffold using ESP Web Tools
-- Camera backend abstraction so RED / GoPro / DJI / Insta360 can be added later without rewriting MSP/OSD/UI
+`TX16S -> receiver -> Betaflight -> MSP UART -> ESP32 -> BLE -> BMPCC 4K`
+
+v0.7 adds:
+
+- Fixed ESP32-C3 SuperMini UART profile: **GPIO6 = RX, GPIO7 = TX, 115200 baud**
+- Live Betaflight MSP status and API version
+- Live CH1-CH16 values in the web page
+- MSP diagnostics: RC responses, timeouts, invalid frames and last response time
+- User-selectable REC/STOP RC channel, threshold and active direction
+- Default mapping remains CH11 / 1500 / above threshold = REC
+- Mapping is now shown in the Blackmagic camera section rather than as a hardware setting
+- More robust REC/STOP application after camera reconnect/authentication
+- Development Wi-Fi remains permanently on for bench diagnostics
 
 ## Hardware
 
@@ -28,44 +35,39 @@ Prototype firmware for an **ESP32-C3 SuperMini** that links a Blackmagic Pocket 
 - BMPCC 4K
 - Betaflight 2025.12+ flight controller
 
-### Wiring
+## Wiring
 
-Only three wires are needed:
+For the ESP32-C3 SuperMini profile, UART pins are intentionally fixed:
 
-| Flight controller | ESP32-C3 |
+| Flight controller | ESP32-C3 SuperMini |
 |---|---|
 | GND | GND |
-| FC TX (spare UART) | configured ESP RX GPIO |
-| FC RX (same UART) | configured ESP TX GPIO |
+| FC TX (spare UART) | GPIO6 (ESP RX) |
+| FC RX (same UART) | GPIO7 (ESP TX) |
 
-Power the ESP32 from a suitable regulated supply for your specific SuperMini board. **Do not feed raw LiPo voltage to the ESP32.**
+Power the ESP32 from a suitable regulated supply. **Do not feed raw LiPo voltage to the ESP32.**
 
-In Betaflight Ports, enable **MSP** on that spare UART at 115200. Do not assign Serial RX/GPS/etc. to the same UART.
+In Betaflight Ports, enable **MSP at 115200** on that spare UART. Do not assign Serial RX, GPS, or another function to the same UART.
 
-## First boot
+## v0.7 bench sequence
 
-1. Flash firmware.
-2. Join Wi-Fi `FPVCineCam32-XXXX`, password `fpvcinecam32`.
-3. Browse to `http://192.168.4.1`.
-4. Set the ESP RX/TX GPIOs used for the FC UART and save.
-5. In Betaflight OSD, place **Custom Message 0** (or the slot chosen in setup).
-6. Scan for the BMPCC 4K and select it.
-7. The camera should show a six-digit Bluetooth PIN. Enter it on the FPVCineCam32 page.
-8. Test REC and STOP on the web page.
-9. Move the assigned radio AUX channel through its threshold. The camera should follow it.
+1. Flash v0.7 and reconnect to `FPVCineCam32-XXXX`, password `fpvcinecam32`.
+2. Open `http://192.168.4.1`.
+3. Confirm the BMPCC reconnects and web REC/STOP still work.
+4. Wire FC TX -> GPIO6, FC RX -> GPIO7, and common GND.
+5. Enable MSP 115200 on that FC UART.
+6. Watch the Betaflight panel. It should show MSP connected, API version, and live CH1-CH16 values.
+7. Move the TX16S switch assigned to the chosen channel and verify its live channel value changes.
+8. Choose that channel in the Blackmagic REC/STOP mapping, set threshold/direction, and save.
+9. Flip the switch. The BMPCC should start and stop recording.
 
-Development build v0.6 keeps the setup Wi-Fi AP enabled continuously so the web controls remain available during bench testing. Wi-Fi auto-off will be reconsidered once camera and MSP operation are proven stable.
+## OSD
 
-## Important v0.6 assumptions / diagnostics
+The existing `MSP2_SET_TEXT` Custom Message support remains in the firmware and the OSD test button remains available, but **v0.7 is primarily an RC/MSP control test**. Camera-state-to-goggles OSD is the next phase after switch control is proven.
 
-- Default UART pins are GPIO6 RX and GPIO7 TX, but **they are configurable** because C3 SuperMini clones vary.
-- Default REC channel is **CH11**, threshold 1500, high=REC.
-- The BMPCC secure pairing flow is implemented using NimBLE passkey injection from the web UI.
-- REC uses Blackmagic CCU `Media 10 / Transport mode 1`, mode 2=Record and 0=Preview.
-- OSD uses MSPv2 `MSP2_SET_TEXT (0x3007)` and Custom Message type 7–10.
-- If OSD does not appear, first use **Send OSD test**. If the test fails, diagnose MSP/Betaflight before BLE.
-- If web REC works but AUX does not, diagnose MSP RC/channel mapping.
-- If camera pairing works but commands fail, clear bonding on both the camera and FPVCineCam32 and re-pair.
+## Development Wi-Fi
+
+Wi-Fi is intentionally kept on continuously in v0.7 so the live MSP channels and diagnostics remain visible during bench testing. This is not the intended final flight behaviour. Automatic Wi-Fi shutdown will be restored after the MSP/OSD path is proven.
 
 ## Build locally
 
@@ -83,16 +85,10 @@ pio run -t upload
 
 ## Browser flasher
 
-`docs/index.html` uses ESP Web Tools. The included GitHub Actions workflow builds the firmware and copies binaries into `docs/firmware/`. Host `docs/` over HTTPS (GitHub Pages is ideal), then open the installer in Chrome/Edge on macOS/Windows/Linux/Android.
+`docs/index.html` uses ESP Web Tools. The existing GitHub Actions workflow builds the firmware and publishes the binaries used by `docs/manifest.json`.
 
-Web Serial does **not** work from iOS Safari, so use a Mac/PC for browser flashing.
+Web Serial does not work from iOS Safari, so use a Mac/PC for browser flashing.
 
 ## License
 
 MIT. Blackmagic Design and Betaflight are trademarks/projects of their respective owners. This project is independent and uses publicly documented protocols.
-
-
-## v0.6 focus
-- Complete post-pair authentication setup and subscriptions.
-- Verify encrypted Outgoing Camera Control writes.
-- Add REC/STOP write diagnostics to the web Status panel.

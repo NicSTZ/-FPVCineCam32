@@ -12,15 +12,21 @@ MspClient msp(FcSerial);
 BlackmagicCamera camera;
 WebUi* web = nullptr;
 
-static uint16_t rc[18]{};
-static size_t rcCount = 0;
-static bool lastRecordSwitch = false;
-static uint32_t lastRcRequest = 0, lastApiRequest = 0, lastOsdUpdate = 0;
+static constexpr int ESP_RX_PIN = 6;
+static constexpr int ESP_TX_PIN = 7;
+static constexpr uint32_t MSP_BAUD = 115200;
 
-static bool recordSwitchState() {
-    int idx = settings.recordChannel - 1;
-    if (idx < 0 || (size_t)idx >= rcCount) return false;
-    return settings.recordActiveHigh ? rc[idx] > settings.recordThreshold : rc[idx] < settings.recordThreshold;
+static uint32_t lastRcRequest = 0, lastApiRequest = 0, lastOsdUpdate = 0, lastRecordAttempt = 0;
+static bool recordMapInitialized = false;
+static bool lastAppliedRecordState = false;
+static bool lastControlReady = false;
+
+static bool recordSwitchState(bool& valid) {
+    const int idx = settings.recordChannel - 1;
+    valid = idx >= 0 && (size_t)idx < msp.rcCount() && msp.rcFresh();
+    if (!valid) return false;
+    const uint16_t value = msp.rcValue((size_t)idx);
+    return settings.recordActiveHigh ? value > settings.recordThreshold : value < settings.recordThreshold;
 }
 
 static String osdText() {
@@ -40,8 +46,9 @@ void setup() {
     delay(250);
     settingsStore.begin();
     settings = settingsStore.load();
-    msp.begin(settings.uartRxPin, settings.uartTxPin, settings.uartBaud);
-    msp.onRc([](const uint16_t* values, size_t n){ rcCount=min(n,(size_t)18); memcpy(rc,values,rcCount*sizeof(uint16_t)); });
+
+    // ESP32-C3 SuperMini hardware profile. Keep these fixed so wiring is predictable.
+    msp.begin(ESP_RX_PIN, ESP_TX_PIN, MSP_BAUD);
 
     camera.begin();
     camera.setSavedTarget(settings.cameraAddress, settings.cameraAddressType);
@@ -56,20 +63,36 @@ void setup() {
 }
 
 void loop() {
-    msp.loop(); camera.loop(); if(web) web->loop();
-    uint32_t now=millis();
-    if(now-lastRcRequest>=100){lastRcRequest=now;msp.requestRc();}
-    if(now-lastApiRequest>=5000){lastApiRequest=now;msp.requestApiVersion();}
+    msp.loop();
+    camera.loop();
+    if(web) web->loop();
 
-    bool sw=recordSwitchState();
-    if(sw!=lastRecordSwitch){
-        lastRecordSwitch=sw;
-        // Treat threshold crossings as desired state, matching the simple Recon32-style mapping.
-        camera.setRecording(sw);
+    const uint32_t now=millis();
+    if(now-lastRcRequest>=100){ lastRcRequest=now; msp.requestRc(); }
+    if(now-lastApiRequest>=5000){ lastApiRequest=now; msp.requestApiVersion(); }
+
+    bool mappingValid = false;
+    const bool desiredRecordState = recordSwitchState(mappingValid);
+    const CameraState& c = camera.state();
+
+    // When the camera control link comes back, re-apply the physical switch position once.
+    // This avoids losing a REC/STOP state across camera reconnect/authentication.
+    if (c.controlReady && !lastControlReady) recordMapInitialized = false;
+    lastControlReady = c.controlReady;
+
+    if (mappingValid && c.controlReady) {
+        const bool changed = !recordMapInitialized || desiredRecordState != lastAppliedRecordState;
+        if (changed && now-lastRecordAttempt >= 300) {
+            lastRecordAttempt = now;
+            if (camera.setRecording(desiredRecordState)) {
+                lastAppliedRecordState = desiredRecordState;
+                recordMapInitialized = true;
+            }
+        }
     }
 
-    if(now-lastOsdUpdate>=500){lastOsdUpdate=now;msp.setCustomText(settings.osdSlot,osdText());}
+    if(now-lastOsdUpdate>=500){ lastOsdUpdate=now; msp.setCustomText(settings.osdSlot,osdText()); }
 
-    // Development build: keep setup Wi-Fi available continuously.
+    // Development build: Wi-Fi stays on so live MSP channels/diagnostics can be observed.
     delay(2);
 }

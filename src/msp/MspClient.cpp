@@ -4,6 +4,7 @@ static constexpr uint8_t MSP_API_VERSION = 1;
 static constexpr uint8_t MSP_RC = 105;
 static constexpr uint16_t MSP2_SET_TEXT = 0x3007;
 static constexpr uint8_t MSP2TEXT_CUSTOM_MSG_0 = 7;
+static constexpr uint32_t RC_TIMEOUT_MS = 120;
 
 void MspClient::begin(int rxPin, int txPin, uint32_t baud) {
     port.begin(baud, SERIAL_8N1, rxPin, txPin);
@@ -12,9 +13,21 @@ void MspClient::begin(int rxPin, int txPin, uint32_t baud) {
 
 void MspClient::loop() {
     while (port.available()) parseByte((uint8_t)port.read());
+    if (rcRequestPending && millis() - rcRequestSentMs > RC_TIMEOUT_MS) {
+        rcRequestPending = false;
+        rcTimeouts++;
+    }
 }
 
-void MspClient::requestRc() { sendV1(MSP_RC); }
+void MspClient::requestRc() {
+    // Keep one RC request in flight. This gives meaningful timeout/latency stats
+    // and avoids stacking requests if the FC UART is disconnected.
+    if (rcRequestPending) return;
+    rcRequestPending = true;
+    rcRequestSentMs = millis();
+    sendV1(MSP_RC);
+}
+
 void MspClient::requestApiVersion() { sendV1(MSP_API_VERSION); }
 
 bool MspClient::setCustomText(uint8_t slot, const String& textIn) {
@@ -59,33 +72,40 @@ void MspClient::resetParser() {
 void MspClient::parseByte(uint8_t b) {
     switch (state) {
     case ParseState::IDLE:
-        if (b == '$') state = ParseState::V1_DIR; // temporarily means 'expect protocol byte'
+        if (b == '$') state = ParseState::V1_DIR;
         break;
     case ParseState::V1_DIR:
         if (b == 'M') { proto = 1; state = ParseState::V1_SIZE; }
         else if (b == 'X') { proto = 2; state = ParseState::V2_DIR; }
-        else resetParser();
+        else { badFrames++; resetParser(); }
         break;
-    case ParseState::V1_SIZE: // actually direction first after $M
+    case ParseState::V1_SIZE: // direction follows $M
         dir = b;
-        if (dir != '>' && dir != '!') { resetParser(); break; }
-        state = ParseState::V1_CMD; // next is size
+        if (dir != '>' && dir != '!') { badFrames++; resetParser(); break; }
+        state = ParseState::V1_CMD; // then payload size
         break;
     case ParseState::V1_CMD:
-        expected = b; checksum = b; state = ParseState::V1_PAYLOAD; index = 0; // next cmd handled special
+        expected = b; checksum = b; state = ParseState::V1_PAYLOAD; index = 0;
         cmd8 = 0xff;
+        if (expected > sizeof(payload)) { badFrames++; resetParser(); }
         break;
     case ParseState::V1_PAYLOAD:
-        if (cmd8 == 0xff) { cmd8 = b; checksum ^= b; if (expected == 0) state = ParseState::V1_CSUM; }
-        else if (index < expected) { if (index < sizeof(payload)) payload[index] = b; index++; checksum ^= b; if (index >= expected) state = ParseState::V1_CSUM; }
+        if (cmd8 == 0xff) {
+            cmd8 = b; checksum ^= b;
+            if (expected == 0) state = ParseState::V1_CSUM;
+        } else if (index < expected) {
+            payload[index++] = b; checksum ^= b;
+            if (index >= expected) state = ParseState::V1_CSUM;
+        }
         break;
     case ParseState::V1_CSUM:
         if (b == checksum && dir == '>') handleFrame(cmd8, payload, expected);
+        else if (dir != '!') badFrames++;
         resetParser();
         break;
     case ParseState::V2_DIR:
         dir = b;
-        if (dir != '>' && dir != '!') { resetParser(); break; }
+        if (dir != '>' && dir != '!') { badFrames++; resetParser(); break; }
         state = ParseState::V2_FLAGS;
         break;
     case ParseState::V2_FLAGS:
@@ -98,14 +118,15 @@ void MspClient::parseByte(uint8_t b) {
         expected = b; crc = crc8DvbS2(crc,b); state = ParseState::V2_SIZE2; break;
     case ParseState::V2_SIZE2:
         expected |= ((uint16_t)b << 8); crc = crc8DvbS2(crc,b); index = 0;
+        if (expected > sizeof(payload)) { badFrames++; resetParser(); break; }
         state = expected ? ParseState::V2_PAYLOAD : ParseState::V2_CRC; break;
     case ParseState::V2_PAYLOAD:
-        if (index < sizeof(payload)) payload[index] = b;
-        index++; crc = crc8DvbS2(crc,b);
+        payload[index++] = b; crc = crc8DvbS2(crc,b);
         if (index >= expected) state = ParseState::V2_CRC;
         break;
     case ParseState::V2_CRC:
-        if (b == crc && dir == '>' && expected <= sizeof(payload)) handleFrame(cmd16,payload,expected);
+        if (b == crc && dir == '>') handleFrame(cmd16,payload,expected);
+        else if (dir != '!') badFrames++;
         resetParser(); break;
     }
 }
@@ -116,9 +137,15 @@ void MspClient::handleFrame(uint16_t cmd, const uint8_t* data, uint16_t len) {
         apiMaj = data[1]; apiMin = data[2];
     } else if (cmd == MSP_RC && len >= 2) {
         const size_t count = len / 2;
-        uint16_t channels[18]{};
-        const size_t n = min(count, (size_t)18);
-        for (size_t i=0;i<n;i++) channels[i] = data[i*2] | ((uint16_t)data[i*2+1] << 8);
-        if (rcCallback) rcCallback(channels, n);
+        cachedRcCount = min(count, (size_t)18);
+        for (size_t i=0;i<cachedRcCount;i++) cachedRc[i] = data[i*2] | ((uint16_t)data[i*2+1] << 8);
+
+        lastRcFrameMs = millis();
+        rcResponses++;
+        if (rcRequestPending) {
+            rcLastResponseMs = millis() - rcRequestSentMs;
+            rcRequestPending = false;
+        }
+        if (rcCallback) rcCallback(cachedRc, cachedRcCount);
     }
 }

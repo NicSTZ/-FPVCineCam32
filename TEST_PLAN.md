@@ -1,50 +1,75 @@
-# FPVCineCam32 v0.6 bench test plan
+# FPVCineCam32 v0.7 bench test plan
 
-Do these in order. Do not troubleshoot multiple layers at once.
+Test one layer at a time.
 
-## 1 — ESP only
-- Flash and boot from USB.
-- Confirm `FPVCineCam32-XXXX` Wi-Fi exists.
-- Join with password `fpvcinecam32` and open `192.168.4.1`.
+## 1. Camera regression check
 
-## 2 — MSP only (camera can stay off)
-- Wire GND, FC TX→ESP RX, FC RX→ESP TX.
-- Enable MSP 115200 on the spare Betaflight UART.
-- Web status should show MSP connected and API `1.47` on BF 2025.12.
-- Place Custom Message 0 in the OSD.
-- Press **Send OSD test**. Goggles should show `BMD LINK TEST`.
-- Move the chosen AUX switch and confirm its channel is correct before involving the camera.
+- Power the ESP32 and BMPCC 4K.
+- Join `FPVCineCam32-XXXX` and open `192.168.4.1`.
+- Confirm the remembered camera reconnects without asking for the PIN again.
+- Press **REC test** and **STOP test**.
+- Confirm the camera actually records/stops and the web state follows it.
 
-## 3 — Blackmagic pairing only
-- Enable Bluetooth on BMPCC 4K.
-- Scan from FPVCineCam32.
-- Select the camera.
-- Camera should show a six-digit PIN.
-- Web page should change to `ENTER 6-DIGIT PIN`.
-- Submit PIN. Camera should become paired/ready.
-- Power-cycle both devices. They should reconnect without re-entering the PIN.
+## 2. Wire Betaflight MSP
 
-## 4 — Camera control
-- Use web **REC** and **STOP** first.
-- Confirm camera's physical red record indication changes.
-- Confirm web state changes from incoming camera notifications, not only from the command sent.
+ESP32-C3 SuperMini v0.7 uses fixed pins:
 
-## 5 — Full chain
-- Toggle the configured TX AUX channel.
-- FC MSP RC → ESP → BMD BLE should start/stop record.
-- OSD should show `REC <timecode>` while recording and `BMD STBY <timecode>` otherwise.
+- FC TX -> ESP GPIO6 (RX)
+- FC RX -> ESP GPIO7 (TX)
+- GND -> GND
+- MSP baud -> 115200
 
-## Fault isolation
-- OSD test fails: UART/MSP/Betaflight problem; ignore BLE.
-- OSD works, web REC fails: BLE/pairing/BMD packet problem.
-- Web REC works, AUX fails: MSP RC mapping/threshold problem.
-- REC command works but state is wrong: incoming BMD transport parser/notification problem.
-- Pairing PIN never appears: encrypted Camera Status write did not initiate bonding; inspect serial logs and NimBLE security callback.
-- If BLE becomes unstable during later flight testing, Wi-Fi coexistence can be revisited after the MSP path is proven.
+In Betaflight Ports, enable MSP on that spare UART only.
 
+## 3. Confirm MSP link
 
-## v0.6 camera-control test
-1. Confirm `paired`, `connected`, and `controlReady` become true.
-2. Press REC. `lastCommand` should become `REC` and `lastWrite` should report the GATT write result.
-3. Confirm the BMPCC4K actually starts recording and incoming state changes `recording` to true.
-4. Press STOP and repeat.
+The web Betaflight panel should show:
+
+- `MSP connected`
+- API version (expected `1.47` on the current BF 2025.12 setup)
+- live CH1-CH16 values
+- increasing response counter
+- low/zero timeouts
+- zero invalid frames
+
+Move sticks/switches and verify the corresponding channel values change.
+
+## 4. Configure REC/STOP mapping
+
+- Select the desired RC channel. Nic's current default is CH11.
+- Default threshold is 1500.
+- Choose **Above threshold** or **Below threshold** for REC.
+- Save mapping.
+- The selected channel's live value is shown beside the mapping.
+
+## 5. Full control test
+
+With BMPCC connected and control-ready:
+
+- Move the selected switch into REC state.
+- Camera should start recording.
+- Move it back into STOP state.
+- Camera should stop recording.
+- Repeat at least 10 times.
+- Power-cycle the ESP32 and repeat without re-pairing.
+
+## 6. Diagnostics
+
+Healthy target:
+
+- RC responses steadily increase.
+- Invalid frames stay at 0.
+- Timeouts remain 0 or very low.
+- Last RC response time remains low and stable.
+
+Fault isolation:
+
+- No MSP connection/API: check UART selection, crossed TX/RX wiring, common ground, and MSP 115200 in Betaflight.
+- MSP connected but no channel movement: verify receiver channels in Betaflight Receiver tab and MSP_RC responses.
+- Channel moves but camera does not respond: verify mapping threshold/direction and camera `controlReady`.
+- Web REC works but RC control does not: problem is MSP/mapping, not Blackmagic BLE.
+- RC control works: proceed to camera-state -> MSP2 Custom Message -> DJI OSD testing.
+
+## 7. Wi-Fi note
+
+v0.7 intentionally keeps Wi-Fi on indefinitely for bench testing. Restore automatic Wi-Fi shutdown only after MSP and OSD are proven.
