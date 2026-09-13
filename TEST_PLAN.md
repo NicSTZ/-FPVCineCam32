@@ -1,10 +1,10 @@
-# FPVCineCam32 v0.9 ISO test plan
+# v0.9.9 quick test
 
-1. Flash the build and confirm `FPVCineCam32-XXXX` Wi-Fi appears and remains stable.
-2. Open `192.168.4.1`; header should say `v0.9 ISO`.
-3. Confirm the BMPCC reconnects normally.
-4. Confirm Custom Message 1 still switches `STBY` / `REC`.
-5. Custom Message 2 should show `ISO <value>` if the BMPCC sends the ISO CCU update; otherwise it will remain `ISO --`.
-6. Change ISO on the BMPCC (for example 400 -> 800) and see whether Message 2 updates.
+1. Flash and power normally.
+2. Give the AP 10–20 seconds; connect to `FPVCineCam32-XXXX`.
+3. Confirm the BMPCC reconnects and REC/STBY works from the TX16S.
+4. Confirm Custom Message 1 changes REC/STBY.
+5. Confirm Custom Message 2: expected `LEFT ...` if media telemetry arrives, otherwise `MEDIA --`.
+6. Leave it powered a few minutes and check Wi-Fi can still be reopened.
 
-This is deliberately a lean placeholder build. It does not include media-left decoding or the later diagnostic additions.
+This is intentionally the last lean media attempt; no heavy diagnostics are included.

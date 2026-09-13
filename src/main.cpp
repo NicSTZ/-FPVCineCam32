@@ -38,10 +38,11 @@ static String osdStatusText() {
     return "CAM WAIT";
 }
 
-static String osdIsoText() {
+static String osdMediaText() {
     const CameraState& c = camera.state();
-    if (!c.connected || c.iso <= 0) return "ISO --";
-    return "ISO " + String(c.iso);
+    if (!c.connected) return "MEDIA --";
+    if (c.mediaRemaining.length() && c.mediaRemaining != "--") return "LEFT " + c.mediaRemaining;
+    return "MEDIA --";
 }
 
 void setup() {
@@ -97,8 +98,10 @@ void loop() {
     if(now-lastOsdUpdate>=500){
         lastOsdUpdate=now;
         msp.setCustomText(settings.osdSlot, osdStatusText());
-        // Stable v0.9 path: use the next Custom Message slot for camera ISO.
-        if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdIsoText());
+        // Clean-media build: second Custom Message stays dedicated to remaining
+        // recording time. If the camera does not publish the status packet it
+        // safely stays MEDIA --.
+        if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
     }
 
     // Development build: Wi-Fi stays on so live MSP channels/diagnostics can be observed.

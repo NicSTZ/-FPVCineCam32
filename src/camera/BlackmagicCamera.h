@@ -49,6 +49,12 @@ private:
     volatile bool postAuthRequested = false;
     uint32_t postAuthAtMs = 0;
 
+    // Keep BLE callbacks tiny: copy only primitive media state here, format later.
+    volatile int32_t pendingMediaSeconds = -1;
+    volatile bool pendingMediaOverflow = false;
+    volatile bool pendingMediaUpdate = false;
+    int8_t activeMediaSlot = -1;
+
     class ClientCallbacks : public NimBLEClientCallbacks {
     public:
         explicit ClientCallbacks(BlackmagicCamera* owner) : o(owner) {}
