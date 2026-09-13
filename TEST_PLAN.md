@@ -1,11 +1,11 @@
-# FPVCamLink v0.1 bench test plan
+# FPVCineCam32 v0.1 bench test plan
 
 Do these in order. Do not troubleshoot multiple layers at once.
 
 ## 1 — ESP only
 - Flash and boot from USB.
-- Confirm `FPVCamLink-XXXX` Wi-Fi exists.
-- Join with password `fpvcamlink` and open `192.168.4.1`.
+- Confirm `FPVCineCam32-XXXX` Wi-Fi exists.
+- Join with password `fpvcinecam32` and open `192.168.4.1`.
 
 ## 2 — MSP only (camera can stay off)
 - Wire GND, FC TX→ESP RX, FC RX→ESP TX.
@@ -17,7 +17,7 @@ Do these in order. Do not troubleshoot multiple layers at once.
 
 ## 3 — Blackmagic pairing only
 - Enable Bluetooth on BMPCC 4K.
-- Scan from FPVCamLink.
+- Scan from FPVCineCam32.
 - Select the camera.
 - Camera should show a six-digit PIN.
 - Web page should change to `ENTER 6-DIGIT PIN`.

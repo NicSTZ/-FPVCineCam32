@@ -1,6 +1,6 @@
 #include "Settings.h"
 
-void SettingsStore::begin() { prefs.begin("fpvcamlink", false); }
+void SettingsStore::begin() { prefs.begin("fpvcinecam32", false); }
 
 AppSettings SettingsStore::load() {
     AppSettings s;

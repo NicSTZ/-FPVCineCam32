@@ -1,4 +1,4 @@
-# FPVCamLink v0.1 — BMPCC 4K + Betaflight
+# FPVCineCam32 v0.1 — BMPCC 4K + Betaflight
 
 Prototype firmware for an **ESP32-C3 SuperMini** that links a Blackmagic Pocket Cinema Camera 4K to Betaflight 2025.12+.
 
@@ -37,12 +37,12 @@ In Betaflight Ports, enable **MSP** on that spare UART at 115200. Do not assign 
 ## First boot
 
 1. Flash firmware.
-2. Join Wi-Fi `FPVCamLink-XXXX`, password `fpvcamlink`.
+2. Join Wi-Fi `FPVCineCam32-XXXX`, password `fpvcinecam32`.
 3. Browse to `http://192.168.4.1`.
 4. Set the ESP RX/TX GPIOs used for the FC UART and save.
 5. In Betaflight OSD, place **Custom Message 0** (or the slot chosen in setup).
 6. Scan for the BMPCC 4K and select it.
-7. The camera should show a six-digit Bluetooth PIN. Enter it on the FPVCamLink page.
+7. The camera should show a six-digit Bluetooth PIN. Enter it on the FPVCineCam32 page.
 8. Test REC and STOP on the web page.
 9. Move the assigned radio AUX channel through its threshold. The camera should follow it.
 
@@ -57,7 +57,7 @@ The setup AP automatically switches off 90 seconds after boot once a paired came
 - OSD uses MSPv2 `MSP2_SET_TEXT (0x3007)` and Custom Message type 7–10.
 - If OSD does not appear, first use **Send OSD test**. If the test fails, diagnose MSP/Betaflight before BLE.
 - If web REC works but AUX does not, diagnose MSP RC/channel mapping.
-- If camera pairing works but commands fail, clear bonding on both the camera and FPVCamLink and re-pair.
+- If camera pairing works but commands fail, clear bonding on both the camera and FPVCineCam32 and re-pair.
 
 ## Build locally
 

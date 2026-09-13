@@ -52,7 +52,7 @@ void setup() {
     camera.setSavedTarget(settings.cameraAddress, settings.cameraAddressType);
 
     uint64_t mac = ESP.getEfuseMac();
-    char ap[32]; snprintf(ap,sizeof(ap),"FPVCamLink-%04X",(uint16_t)(mac&0xffff));
+    char ap[32]; snprintf(ap,sizeof(ap),"FPVCineCam32-%04X",(uint16_t)(mac&0xffff));
     web = new WebUi(settings,settingsStore,camera,msp);
     web->begin(ap);
 

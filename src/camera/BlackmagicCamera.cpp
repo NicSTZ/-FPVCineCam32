@@ -13,7 +13,7 @@ static const NimBLEUUID MODEL_UUID("2A24");
 BlackmagicCamera::BlackmagicCamera() : callbacks(this) { instance = this; }
 
 void BlackmagicCamera::begin() {
-    NimBLEDevice::init("FPVCamLink");
+    NimBLEDevice::init("FPVCineCam32");
     NimBLEDevice::setPower(3);
     NimBLEDevice::setSecurityAuth(true, true, false); // bond + MITM, legacy/SC both accepted
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_KEYBOARD_ONLY);
