@@ -46,6 +46,8 @@ private:
     bool subscriptionsReady = false;
     bool reconnectWanted = false;
     uint32_t nextReconnectMs = 0;
+    volatile bool postAuthRequested = false;
+    uint32_t postAuthAtMs = 0;
 
     class ClientCallbacks : public NimBLEClientCallbacks {
     public:
@@ -62,6 +64,7 @@ private:
     static void connectTaskThunk(void* arg);
     bool discoverAndSubscribe();
     bool triggerPairingByEncryptedWrite();
+    bool writeControlPacket(const uint8_t* data, size_t len);
     void readIdentity();
     void parseIncoming(const uint8_t* data, size_t len);
     void parseTimecode(const uint8_t* data, size_t len);

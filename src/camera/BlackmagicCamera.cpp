@@ -77,6 +77,10 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     camState.ready = false;
     camState.model = "";
     camState.protocolVersion = "";
+    camState.lastCommand = "";
+    camState.lastWrite = "";
+    camState.controlReady = false;
+    postAuthRequested = false;
     camState.status = "CONNECTING BLE";
 
     if (!client) {
@@ -168,14 +172,25 @@ void BlackmagicCamera::readIdentity() {
             if (printable) {
                 camState.protocolVersion = String(v.c_str());
             } else {
-                String hex;
+                // Pocket 4K firmware 8.1 reports this as a NUL-padded text value.
+                // Decode printable bytes first; fall back to hex only if that fails.
+                String compact;
                 for (size_t i = 0; i < v.size(); i++) {
-                    char tmp[4];
-                    snprintf(tmp, sizeof(tmp), "%02X", (unsigned)v[i]);
-                    if (i) hex += ':';
-                    hex += tmp;
+                    uint8_t b = v[i];
+                    if (b >= 32 && b <= 126) compact += (char)b;
                 }
-                camState.protocolVersion = hex;
+                if (compact.length()) {
+                    camState.protocolVersion = compact;
+                } else {
+                    String hex;
+                    for (size_t i = 0; i < v.size(); i++) {
+                        char tmp[4];
+                        snprintf(tmp, sizeof(tmp), "%02X", (unsigned)v[i]);
+                        if (i) hex += ':';
+                        hex += tmp;
+                    }
+                    camState.protocolVersion = hex;
+                }
             }
         }
     }
@@ -194,16 +209,26 @@ bool BlackmagicCamera::discoverAndSubscribe() {
     if (timecode && timecode->canNotify()) ok &= timecode->subscribe(true, timecodeNotify);
     if (statusChar && statusChar->canNotify()) ok &= statusChar->subscribe(true, statusNotify);
     subscriptionsReady = ok;
+    camState.controlReady = ok && outgoing != nullptr;
     if (ok) {
         camState.paired = true;
-        camState.status = "BMD CONNECTED";
+        camState.status = "BMD CONTROL READY";
     } else {
+        camState.controlReady = false;
         camState.status = "SUBSCRIBE FAIL";
     }
     return ok;
 }
 
 void BlackmagicCamera::loop() {
+    // NimBLE authentication callbacks run in the BLE host context. Do the service
+    // subscription work here instead of inside the callback so we do not block it.
+    if (postAuthRequested && !passkeyPending && client && client->isConnected() && millis() >= postAuthAtMs) {
+        postAuthRequested = false;
+        camState.status = "AUTH OK - SETTING CONTROL";
+        discoverAndSubscribe();
+    }
+
     if (connectRequested && !connectTaskRunning) {
         connectTaskRunning = true;
         if (xTaskCreate(connectTaskThunk, "bmd-connect", 8192, this, 1, nullptr) != pdPASS) {
@@ -240,6 +265,8 @@ void BlackmagicCamera::ClientCallbacks::onDisconnect(NimBLEClient*, int reason) 
     o->camState.recording = false;
     o->serviceReady = false;
     o->subscriptionsReady = false;
+    o->camState.controlReady = false;
+    o->postAuthRequested = false;
     o->passkeyPending = false;
     o->pendingConnHandle = BLE_HS_CONN_HANDLE_NONE;
     o->camState.status = "BMD OFFLINE (" + String(reason) + ")";
@@ -265,13 +292,52 @@ void BlackmagicCamera::ClientCallbacks::onAuthenticationComplete(NimBLEConnInfo&
     }
     o->camState.paired = true;
     o->camState.status = "PAIR AUTH OK";
+    o->postAuthAtMs = millis() + 150;
+    o->postAuthRequested = true;
+}
+
+bool BlackmagicCamera::writeControlPacket(const uint8_t* data, size_t len) {
+    if (!outgoing || !client || !client->isConnected()) {
+        camState.lastWrite = "NO CONTROL LINK";
+        camState.controlReady = false;
+        return false;
+    }
+
+    NimBLEConnInfo ci = client->getConnInfo();
+    if (!ci.isEncrypted()) {
+        camState.lastWrite = "LINK NOT ENCRYPTED";
+        camState.controlReady = false;
+        return false;
+    }
+
+    bool ok = false;
+    // Blackmagic's Outgoing Camera Control characteristic is a normal GATT write.
+    // Prefer write-with-response, but fall back to write-without-response if that
+    // is the property exposed by this camera/firmware revision.
+    if (outgoing->canWrite()) {
+        ok = outgoing->writeValue(data, len, true);
+        camState.lastWrite = ok ? "WRITE RESPONSE OK" : "WRITE RESPONSE FAIL";
+    }
+    if (!ok && outgoing->canWriteNoResponse()) {
+        ok = outgoing->writeValue(data, len, false);
+        camState.lastWrite = ok ? "WRITE NO-RSP OK" : "WRITE NO-RSP FAIL";
+    }
+    if (!outgoing->canWrite() && !outgoing->canWriteNoResponse()) {
+        camState.lastWrite = "OUTGOING NOT WRITABLE";
+    }
+    camState.controlReady = ok || subscriptionsReady;
+    return ok;
 }
 
 bool BlackmagicCamera::setRecording(bool on) {
-    if (!outgoing || !client || !client->isConnected()) return false;
-    uint8_t packet[12] = {255, 5, 0, 0, 10, 1, 1, 0, (uint8_t)(on ? 2 : 0), 0, 0, 0};
-    bool ok = outgoing->writeValue(packet, sizeof(packet), true);
-    if (ok) camState.status = on ? "REC COMMAND" : "STOP COMMAND";
+    // Blackmagic example packet: destination 255, command length 5, command id 0,
+    // category Media(10), parameter Transport Mode(1), int8, assign, mode 2=Record / 0=Preview.
+    static const uint8_t recPacket[12]  = {255, 5, 0, 0, 10, 1, 1, 0, 2, 0, 0, 0};
+    static const uint8_t stopPacket[12] = {255, 5, 0, 0, 10, 1, 1, 0, 0, 0, 0, 0};
+    const uint8_t* packet = on ? recPacket : stopPacket;
+    camState.lastCommand = on ? "REC" : "STOP";
+    bool ok = writeControlPacket(packet, 12);
+    camState.status = ok ? (on ? "REC SENT" : "STOP SENT") : (on ? "REC WRITE FAIL" : "STOP WRITE FAIL");
     return ok;
 }
 
@@ -306,7 +372,10 @@ void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
     camState.connected = f & 0x02;
     camState.paired = f & 0x04;
     camState.ready = f & 0x20;
-    if (camState.ready) camState.status = camState.recording ? "REC" : "BMD READY";
+    if (camState.ready) {
+        camState.controlReady = true;
+        camState.status = camState.recording ? "REC" : "BMD READY";
+    }
 }
 
 void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {

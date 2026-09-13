@@ -14,6 +14,9 @@ struct CameraState {
     String model = "";
     String protocolVersion = "";
     String status = "OFFLINE";
+    String lastCommand = "";
+    String lastWrite = "";
+    bool controlReady = false;
 };
 
 class ICameraBackend {

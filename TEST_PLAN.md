@@ -1,4 +1,4 @@
-# FPVCineCam32 v0.4 bench test plan
+# FPVCineCam32 v0.5 bench test plan
 
 Do these in order. Do not troubleshoot multiple layers at once.
 
@@ -41,3 +41,10 @@ Do these in order. Do not troubleshoot multiple layers at once.
 - REC command works but state is wrong: incoming BMD transport parser/notification problem.
 - Pairing PIN never appears: encrypted Camera Status write did not initiate bonding; inspect serial logs and NimBLE security callback.
 - Random BLE dropouts in flight: disable setup Wi-Fi (automatic after 90 s) and retest before changing BLE logic.
+
+
+## v0.5 camera-control test
+1. Confirm `paired`, `connected`, and `controlReady` become true.
+2. Press REC. `lastCommand` should become `REC` and `lastWrite` should report the GATT write result.
+3. Confirm the BMPCC4K actually starts recording and incoming state changes `recording` to true.
+4. Press STOP and repeat.
