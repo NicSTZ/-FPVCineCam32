@@ -1,12 +1,16 @@
-# FPVCineCam32 v0.9.5 diagnostic test
+# FPVCineCam32 v0.9.6 raw BLE diagnostic test
 
-1. Flash v0.9.5 and confirm `FPVCineCam32-XXXX` appears normally.
-2. Connect to Wi-Fi and open `192.168.4.1`. Confirm the page says v0.9.5.
-3. Confirm REC/STBY still works from the TX16S switch.
-4. Find **Blackmagic CCU diagnostics** on the page.
-5. With media inserted, leave camera in STBY for a few seconds.
-6. Start REC, wait a few seconds, then STOP.
-7. If convenient, change codec or recording quality so the camera's own remaining-time display changes significantly.
-8. Screenshot/copy the diagnostic lines, especially any `CAT 09 PARAM 02` entries and anything that changes between STBY/REC/codec changes.
+1. Flash v0.9.6.
+2. Power normally and verify `FPVCineCam32-XXXX` appears.
+3. Connect to the AP and open `192.168.4.1`.
+4. Confirm the page says v0.9.6 and REC/STBY still works.
+5. Scroll to **Raw Blackmagic BLE diagnostics**.
+6. Leave the camera in STBY for a few seconds.
+7. Start REC, wait a few seconds, then STOP.
+8. Change codec or quality so the camera's displayed record-time remaining changes significantly.
+9. Take a screenshot of the raw diagnostic block or copy its lines.
 
-Expected: Wi-Fi and REC/STBY remain stable. `MEDIA --` may remain until we decode the real packet format from these logs.
+Expected diagnostic format:
+`#123 LEN 12 DATA FF 05 00 00 ...`
+
+If it says `No raw Incoming Camera Control notifications yet`, send that result too; that tells us the Incoming Camera Control characteristic itself is not notifying.

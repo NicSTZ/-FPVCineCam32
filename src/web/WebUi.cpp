@@ -8,7 +8,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;ma
 h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
 button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}.statusBadge{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;font-weight:600;margin-bottom:8px}.statusBadge::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor}.statusOnline{color:#6ee787;background:#17351f}.statusOffline{color:#ff6b6b;background:#3a1b1b}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
-<h1>FPVCineCam32 <small>v0.9.5</small></h1><div class=sub>Blackmagic + Betaflight MSP development build</div>
+<h1>FPVCineCam32 <small>v0.9.6</small></h1><div class=sub>Blackmagic + Betaflight MSP development build</div>
 
 <div class=card><h3>Blackmagic Pocket Cinema Camera</h3>
 <div id=camBadge class="statusBadge statusOffline">Camera disconnected</div><div id=camSummary class=muted>Loading...</div>
@@ -33,10 +33,10 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <p class=muted id=mspStats></p>
 <label>OSD Custom Message slot <select id=slot><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
 <button onclick=saveOsd()>Save OSD slot</button><button onclick=testosd()>Send OSD test</button>
-<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p class=muted>v0.9.5 sends REC/STBY to the selected Custom Message slot and remaining record time to the next Custom Message slot.</p>
+<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p class=muted>v0.9.6 sends REC/STBY to the selected Custom Message slot and remaining record time to the next Custom Message slot.</p>
 </div>
 
-<div class=card><h3>Blackmagic CCU diagnostics</h3><p class=muted>Do STBY, REC, STOP and change codec/quality. Send me the lines below.</p><pre id=ccu>No decoded CCU packets yet</pre></div>
+<div class=card><h3>Raw Blackmagic BLE diagnostics</h3><p class=muted>This is captured directly from the Incoming Camera Control BLE notification before CCU decoding. Do STBY -> REC -> STOP, then change codec/quality and send me these lines.</p><pre id=ccu>No raw notifications yet</pre></div>
 <div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button></div>
 
 <script>
@@ -81,7 +81,7 @@ async function refresh(){
     el('mspStats').textContent=`Responses: ${s.msp.responses} | Timeouts: ${s.msp.timeouts} | Invalid frames: ${s.msp.invalidFrames}`;
     el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;el('slot').value=s.settings.slot;
     drawChannels(s);
-    try{const r=await fetch('/api/ccu');el('ccu').textContent=await r.text()}catch(e){el('ccu').textContent='CCU diagnostic error: '+e.message}
+    try{const r=await fetch('/api/ccu');el('ccu').textContent=await r.text()}catch(e){el('ccu').textContent='Raw BLE diagnostic error: '+e.message}
   }catch(e){el('status').textContent='Status error: '+e.message;el('mspSummary').textContent='ESP web API unavailable'}
 }
 async function scan(){

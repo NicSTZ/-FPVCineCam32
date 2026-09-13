@@ -50,22 +50,17 @@ private:
     volatile bool postAuthRequested = false;
     uint32_t postAuthAtMs = 0;
 
-
-    struct DiagnosticPacket {
+    struct RawNotification {
         uint32_t seq = 0;
-        uint8_t category = 0;
-        uint8_t parameter = 0;
-        uint8_t dataType = 0;
-        uint8_t operation = 0;
-        uint8_t valueLen = 0;
-        char dataHex[97] = {0};
+        uint16_t len = 0;
+        char dataHex[145] = {0};   // first 48 bytes: "AA BB ..."
     };
-    static constexpr uint8_t DIAG_COUNT = 10;
-    DiagnosticPacket diagPackets[DIAG_COUNT];
-    volatile uint8_t diagWriteIndex = 0;
-    volatile uint32_t diagSequence = 0;
+    static constexpr uint8_t RAW_DIAG_COUNT = 20;
+    RawNotification rawPackets[RAW_DIAG_COUNT];
+    volatile uint8_t rawWriteIndex = 0;
+    volatile uint32_t rawSequence = 0;
 
-    void captureDiagnostic(uint8_t category, uint8_t parameter, uint8_t dataType, uint8_t operation, const uint8_t* value, size_t valueLen);
+    void captureRawNotification(const uint8_t* data, size_t len);
 
     volatile int32_t pendingMediaSeconds = -1;
     volatile bool pendingMediaOverflow = false;

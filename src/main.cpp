@@ -98,7 +98,7 @@ void loop() {
     if(now-lastOsdUpdate>=500){
         lastOsdUpdate=now;
         msp.setCustomText(settings.osdSlot, osdStatusText());
-        // v0.9.5 uses the next Custom Message slot for validated remaining record time.
+        // v0.9.6 uses the next Custom Message slot for validated remaining record time.
         if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
     }
 

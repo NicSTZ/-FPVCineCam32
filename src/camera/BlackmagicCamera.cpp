@@ -387,13 +387,61 @@ void BlackmagicCamera::forgetPairing() {
 }
 
 void BlackmagicCamera::incomingNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
-    if (instance) instance->parseIncoming(data, len);
+    if (!instance) return;
+    // v0.9.6: tap the BLE notification at the lowest level, before any CCU
+    // interpretation. This lets the web diagnostics show packets even when our
+    // parser does not understand them.
+    instance->captureRawNotification(data, len);
+    instance->parseIncoming(data, len);
 }
 void BlackmagicCamera::timecodeNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
     if (instance) instance->parseTimecode(data, len);
 }
 void BlackmagicCamera::statusNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
     if (instance) instance->parseStatus(data, len);
+}
+
+void BlackmagicCamera::captureRawNotification(const uint8_t* data, size_t len) {
+    if (!data || !len) return;
+    const uint8_t idx = rawWriteIndex % RAW_DIAG_COUNT;
+    RawNotification& r = rawPackets[idx];
+    r.seq = ++rawSequence;
+    r.len = (uint16_t)min(len, (size_t)65535);
+
+    const size_t dumpLen = min(len, (size_t)48);
+    size_t pos = 0;
+    r.dataHex[0] = '\0';
+    for (size_t i = 0; i < dumpLen && pos + 4 < sizeof(r.dataHex); ++i) {
+        const int n = snprintf(&r.dataHex[pos], sizeof(r.dataHex) - pos,
+                               i ? " %02X" : "%02X", (unsigned)data[i]);
+        if (n <= 0) break;
+        pos += (size_t)n;
+    }
+    if (len > dumpLen && pos + 4 < sizeof(r.dataHex)) {
+        snprintf(&r.dataHex[pos], sizeof(r.dataHex) - pos, " ...");
+    }
+    rawWriteIndex = (uint8_t)((idx + 1) % RAW_DIAG_COUNT);
+}
+
+String BlackmagicCamera::diagnosticsText() const {
+    String out;
+    out.reserve(4200);
+    const uint32_t newest = rawSequence;
+    const uint32_t start = newest > RAW_DIAG_COUNT ? newest - RAW_DIAG_COUNT + 1 : 1;
+    for (uint32_t seq = start; seq <= newest; ++seq) {
+        const RawNotification* found = nullptr;
+        for (uint8_t i = 0; i < RAW_DIAG_COUNT; ++i) {
+            if (rawPackets[i].seq == seq) { found = &rawPackets[i]; break; }
+        }
+        if (!found) continue;
+        char line[230];
+        snprintf(line, sizeof(line), "#%lu LEN %u DATA %s",
+                 (unsigned long)found->seq, (unsigned)found->len, found->dataHex);
+        if (out.length()) out += '\n';
+        out += line;
+    }
+    if (!out.length()) out = "No raw Incoming Camera Control notifications yet";
+    return out;
 }
 
 void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
@@ -406,51 +454,6 @@ void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
         camState.controlReady = true;
         camState.status = camState.recording ? "REC" : "BMD READY";
     }
-}
-
-void BlackmagicCamera::captureDiagnostic(uint8_t category, uint8_t parameter, uint8_t dataType, uint8_t operation, const uint8_t* value, size_t valueLen) {
-    const uint8_t idx = diagWriteIndex % DIAG_COUNT;
-    DiagnosticPacket& d = diagPackets[idx];
-    d.seq = ++diagSequence;
-    d.category = category;
-    d.parameter = parameter;
-    d.dataType = dataType;
-    d.operation = operation;
-    d.valueLen = (uint8_t)min(valueLen, (size_t)255);
-
-    const size_t dumpLen = min(valueLen, (size_t)32);
-    size_t pos = 0;
-    d.dataHex[0] = '\0';
-    for (size_t i = 0; i < dumpLen && pos + 4 < sizeof(d.dataHex); ++i) {
-        const int n = snprintf(&d.dataHex[pos], sizeof(d.dataHex) - pos, i ? " %02X" : "%02X", (unsigned)value[i]);
-        if (n <= 0) break;
-        pos += (size_t)n;
-    }
-    if (valueLen > dumpLen && pos + 4 < sizeof(d.dataHex)) snprintf(&d.dataHex[pos], sizeof(d.dataHex) - pos, " ...");
-    diagWriteIndex = (uint8_t)((idx + 1) % DIAG_COUNT);
-}
-
-String BlackmagicCamera::diagnosticsText() const {
-    String out;
-    out.reserve(1600);
-    uint32_t newest = diagSequence;
-    uint32_t start = newest > DIAG_COUNT ? newest - DIAG_COUNT + 1 : 1;
-    for (uint32_t seq = start; seq <= newest; ++seq) {
-        const DiagnosticPacket* found = nullptr;
-        for (uint8_t i = 0; i < DIAG_COUNT; ++i) {
-            if (diagPackets[i].seq == seq) { found = &diagPackets[i]; break; }
-        }
-        if (!found) continue;
-        char line[180];
-        snprintf(line, sizeof(line), "#%lu CAT %02u PARAM %02u TYPE %02u OP %02u LEN %u DATA %s",
-                 (unsigned long)found->seq, (unsigned)found->category, (unsigned)found->parameter,
-                 (unsigned)found->dataType, (unsigned)found->operation, (unsigned)found->valueLen,
-                 found->dataHex);
-        if (out.length()) out += '\n';
-        out += line;
-    }
-    if (!out.length()) out = "No decoded CCU packets yet";
-    return out;
 }
 
 void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
@@ -481,10 +484,6 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
             const uint8_t operation = data[p + 7];
             const size_t valueLen = cmdLen - 4;
             const uint8_t* value = &data[p + 8];
-
-            // v0.9.5 diagnostic ring: record every valid Change Configuration command
-            // without allocating Strings in the BLE notification callback.
-            captureDiagnostic(category, parameter, dataType, operation, value, valueLen);
 
             // Media / Transport Mode. First int8 value is mode:
             // 0 Preview, 1 Play, 2 Record. Byte 2 contains active-media flags.
