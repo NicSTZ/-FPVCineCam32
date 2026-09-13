@@ -1,4 +1,4 @@
-# FPVCineCam32 v0.1 bench test plan
+# FPVCineCam32 v0.2 bench test plan
 
 Do these in order. Do not troubleshoot multiple layers at once.
 

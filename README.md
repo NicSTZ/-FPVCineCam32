@@ -1,8 +1,8 @@
-# FPVCineCam32 v0.1 — BMPCC 4K + Betaflight
+# FPVCineCam32 v0.2 — BMPCC 4K + Betaflight
 
 Prototype firmware for an **ESP32-C3 SuperMini** that links a Blackmagic Pocket Cinema Camera 4K to Betaflight 2025.12+.
 
-## v0.1 goals
+## v0.2 goals
 
 - Blackmagic BLE scan, secure pairing and remembered bond
 - BMPCC 4K REC / STOP control
@@ -48,7 +48,7 @@ In Betaflight Ports, enable **MSP** on that spare UART at 115200. Do not assign 
 
 The setup AP automatically switches off 90 seconds after boot once a paired camera is connected. This reduces Wi-Fi/BLE coexistence traffic in flight. Hold the **BOOT** button while powering the ESP32 to keep setup Wi-Fi enabled.
 
-## Important v0.1 assumptions / diagnostics
+## Important v0.2 assumptions / diagnostics
 
 - Default UART pins are GPIO4 RX and GPIO3 TX, but **they are configurable** because C3 SuperMini clones vary.
 - Default REC channel is **CH11**, threshold 1500, high=REC.

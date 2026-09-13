@@ -46,6 +46,7 @@ bool BlackmagicCamera::startScan(String& jsonOut) {
 bool BlackmagicCamera::connectTo(const String& address, uint8_t addressType) {
     if (client && client->isConnected()) client->disconnect();
     serviceReady = subscriptionsReady = false;
+    powerHandshakeDone = false;
     outgoing = incoming = timecode = statusChar = modelChar = nullptr;
     passkeyPending = false;
     pendingConnHandle = BLE_HS_CONN_HANDLE_NONE;
@@ -83,10 +84,17 @@ bool BlackmagicCamera::connectTo(const String& address, uint8_t addressType) {
     serviceReady = outgoing && statusChar;
     if (!serviceReady) { camState.status = "CHAR MISSING"; client->disconnect(); return false; }
 
-    // Official BMD docs: write Camera Power On to encrypted status characteristic to initiate bonding.
-    if (!writePowerHandshake()) {
-        // If already bonded the write should succeed immediately; during a new bond it can initially report false.
-        camState.status = passkeyPending ? "ENTER PIN" : "PAIRING";
+    // Start pairing asynchronously. A synchronous encrypted write can block the HTTP request
+    // while NimBLE waits for a passkey, preventing the setup page from displaying the PIN field.
+    NimBLEConnInfo ci = client->getConnInfo();
+    if (ci.isEncrypted() || ci.isBonded()) {
+        camState.status = "SECURE";
+    } else {
+        camState.status = "PAIRING - WAIT FOR PIN";
+        if (!client->secureConnection(true)) {
+            camState.status = "SECURITY START FAIL";
+            return false;
+        }
     }
     return true;
 }
@@ -112,9 +120,15 @@ bool BlackmagicCamera::discoverAndSubscribe() {
 }
 
 void BlackmagicCamera::loop() {
-    if (client && client->isConnected() && serviceReady && !subscriptionsReady && !passkeyPending) {
+    if (client && client->isConnected() && serviceReady && !passkeyPending) {
         NimBLEConnInfo ci = client->getConnInfo();
-        if (ci.isEncrypted() || ci.isBonded()) discoverAndSubscribe();
+        if (ci.isEncrypted() || ci.isBonded()) {
+            if (!powerHandshakeDone) {
+                powerHandshakeDone = writePowerHandshake();
+                if (powerHandshakeDone) camState.status = "BMD SECURE";
+            }
+            if (powerHandshakeDone && !subscriptionsReady) discoverAndSubscribe();
+        }
     }
     if (reconnectWanted && millis() >= nextReconnectMs && savedAddress.length()) {
         reconnectWanted = false;
@@ -139,6 +153,7 @@ void BlackmagicCamera::ClientCallbacks::onDisconnect(NimBLEClient*, int) {
     o->camState.connected = o->camState.ready = o->camState.recording = false;
     o->camState.status = "BMD OFFLINE";
     o->serviceReady = o->subscriptionsReady = false;
+    o->powerHandshakeDone = false;
     o->passkeyPending = false;
     o->pendingConnHandle = BLE_HS_CONN_HANDLE_NONE;
     if (o->savedAddress.length()) { o->reconnectWanted = true; o->nextReconnectMs = millis() + 2000; }
@@ -156,7 +171,7 @@ void BlackmagicCamera::ClientCallbacks::onAuthenticationComplete(NimBLEConnInfo&
         return;
     }
     o->camState.paired = true;
-    o->camState.status = "PAIRED";
+    o->camState.status = "PAIRED - INITIALIZING";
 }
 
 bool BlackmagicCamera::setRecording(bool on) {

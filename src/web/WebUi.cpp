@@ -4,7 +4,7 @@
 const char WebUi::PAGE[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1"><title>FPVCineCam32</title>
 <style>body{font-family:-apple-system,Arial;max-width:760px;margin:24px auto;padding:0 16px;background:#111;color:#eee}h1{margin-bottom:4px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}button,input,select{font-size:16px;padding:10px;margin:5px;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}pre{white-space:pre-wrap}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}@media(max-width:600px){.grid{grid-template-columns:1fr}}</style></head><body>
-<h1>FPVCineCam32 <small>v0.1</small></h1><div>Blackmagic Pocket Cinema Camera 4K prototype</div>
+<h1>FPVCineCam32 <small>v0.2</small></h1><div>Blackmagic Pocket Cinema Camera 4K prototype</div>
 <div class=card><h3>Status</h3><pre id=status>Loading…</pre><button onclick=refresh()>Refresh</button></div>
 <div class=card><h3>Blackmagic pairing</h3><button onclick=scan()>Scan for cameras</button><div id=cams></div><div id=pin style="display:none"><p class=warn>Enter the 6-digit PIN shown on the BMPCC 4K:</p><input id=pinval inputmode=numeric maxlength=6 placeholder=123456><button onclick=sendPin()>Submit PIN</button></div><br><button onclick=forget()>Forget pairing</button></div>
 <div class=card><h3>Betaflight / MSP</h3><p>Wire FC TX → ESP RX and FC RX → ESP TX. Put <b>MSP</b> on that FC UART. Betaflight 2025.12+ required for Custom Message OSD.</p><div class=grid>
@@ -12,15 +12,36 @@ const char WebUi::PAGE[] PROGMEM = R"HTML(
 <p>In Betaflight OSD, place the matching <b>Custom Message</b> element on screen.</p></div>
 <div class=card><h3>Camera test</h3><button onclick="rec(1)">REC</button><button onclick="rec(0)">STOP</button><button onclick=testosd()>Send OSD test</button></div>
 <script>
-async function api(url,opt){let r=await fetch(url,opt);return await r.json()}
-async function refresh(){let s=await api('/api/status');status.textContent=JSON.stringify(s,null,2);pin.style.display=s.camera.waitingPin?'block':'none';rx.value=s.settings.rx;tx.value=s.settings.tx;baud.value=s.settings.baud;ch.value=s.settings.channel;thr.value=s.settings.threshold;high.value=s.settings.high?1:0;slot.value=s.settings.slot}
-async function scan(){cams.textContent='Scanning…';let x=await api('/api/scan');cams.innerHTML='';x.forEach(c=>{let b=document.createElement('button');b.textContent=(c.name||'Blackmagic')+' '+c.address;b.onclick=()=>connect(c.address,c.type);cams.appendChild(b)})}
-async function connect(a,t){await api('/api/connect?address='+encodeURIComponent(a)+'&type='+t);setTimeout(refresh,500)}
-async function sendPin(){await api('/api/pin?value='+pinval.value);setTimeout(refresh,700)}
+const el=id=>document.getElementById(id);
+async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
+async function refresh(){
+  try{
+    const s=await api('/api/status');
+    el('status').textContent=JSON.stringify(s,null,2);
+    el('pin').style.display=s.camera.waitingPin?'block':'none';
+    el('rx').value=s.settings.rx; el('tx').value=s.settings.tx; el('baud').value=s.settings.baud;
+    el('ch').value=s.settings.channel; el('thr').value=s.settings.threshold; el('high').value=s.settings.high?1:0; el('slot').value=s.settings.slot;
+  }catch(e){el('status').textContent='Status error: '+e.message}
+}
+async function scan(){
+  el('cams').textContent='Scanning…';
+  try{
+    const x=await api('/api/scan'); el('cams').innerHTML='';
+    if(!x.length){el('cams').textContent='No Blackmagic cameras found';return}
+    x.forEach(c=>{const b=document.createElement('button');b.textContent=(c.name||'Blackmagic')+' '+c.address;b.onclick=()=>connect(c.address,c.type);el('cams').appendChild(b)})
+  }catch(e){el('cams').textContent='Scan error: '+e.message}
+}
+async function connect(a,t){
+  el('status').textContent='Connecting to camera…';
+  try{await api('/api/connect?address='+encodeURIComponent(a)+'&type='+t)}catch(e){el('status').textContent='Connect error: '+e.message}
+  setTimeout(refresh,250);
+}
+async function sendPin(){const v=el('pinval').value.trim();if(!/^\d{6}$/.test(v)){alert('Enter the 6-digit PIN shown on the camera');return}await api('/api/pin?value='+v);setTimeout(refresh,400)}
 async function forget(){await api('/api/forget');refresh()}
-async function rec(v){await api('/api/record?on='+v);setTimeout(refresh,400)}
+async function rec(v){await api('/api/record?on='+v);setTimeout(refresh,300)}
 async function testosd(){await api('/api/osdtest')}
-async function save(){let u=`/api/save?rx=${rx.value}&tx=${tx.value}&baud=${baud.value}&ch=${ch.value}&thr=${thr.value}&high=${high.value}&slot=${slot.value}`;await api(u);alert('Saved. Device will reboot.')}setInterval(refresh,1500);refresh();
+async function save(){const u=`/api/save?rx=${el('rx').value}&tx=${el('tx').value}&baud=${el('baud').value}&ch=${el('ch').value}&thr=${el('thr').value}&high=${el('high').value}&slot=${el('slot').value}`;await api(u);alert('Saved. Device will reboot.')}
+setInterval(refresh,1000);refresh();
 </script></body></html>)HTML";
 
 void WebUi::begin(const String& apName) {

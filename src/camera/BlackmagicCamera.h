@@ -36,6 +36,7 @@ private:
     volatile uint16_t pendingConnHandle = BLE_HS_CONN_HANDLE_NONE;
     bool serviceReady = false;
     bool subscriptionsReady = false;
+    bool powerHandshakeDone = false;
     bool reconnectWanted = false;
     uint32_t nextReconnectMs = 0;
 
