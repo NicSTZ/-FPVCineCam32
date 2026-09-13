@@ -1,6 +1,6 @@
 {
   "name": "FPVCineCam32",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "new_install_prompt_erase": true,
   "builds": [
     {

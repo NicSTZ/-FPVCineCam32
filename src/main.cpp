@@ -98,7 +98,9 @@ void loop() {
     if(now-lastOsdUpdate>=500){
         lastOsdUpdate=now;
         msp.setCustomText(settings.osdSlot, osdStatusText());
-        // v0.9.6 uses the next Custom Message slot for validated remaining record time.
+        // v0.9 uses the next Custom Message slot for media remaining. Until we
+        // have decoded the Pocket 4K's media-remaining BLE payload this cleanly
+        // shows MEDIA -- instead of bogus timecode data.
         if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
     }
 

@@ -8,7 +8,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;ma
 h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
 button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}.statusBadge{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;font-weight:600;margin-bottom:8px}.statusBadge::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor}.statusOnline{color:#6ee787;background:#17351f}.statusOffline{color:#ff6b6b;background:#3a1b1b}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
-<h1>FPVCineCam32 <small>v0.9.6</small></h1><div class=sub>Blackmagic + Betaflight MSP development build</div>
+<h1>FPVCineCam32 <small>v0.9.7</small></h1><div class=sub>Blackmagic + Betaflight MSP development build</div>
 
 <div class=card><h3>Blackmagic Pocket Cinema Camera</h3>
 <div id=camBadge class="statusBadge statusOffline">Camera disconnected</div><div id=camSummary class=muted>Loading...</div>
@@ -33,11 +33,10 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <p class=muted id=mspStats></p>
 <label>OSD Custom Message slot <select id=slot><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
 <button onclick=saveOsd()>Save OSD slot</button><button onclick=testosd()>Send OSD test</button>
-<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p class=muted>v0.9.6 sends REC/STBY to the selected Custom Message slot and remaining record time to the next Custom Message slot.</p>
+<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p class=muted>v0.9 sends REC/STBY to the selected Custom Message slot. The next Custom Message slot is reserved for media remaining (currently shown as MEDIA -- while we finish decoding the Pocket 4K media payload).</p>
 </div>
 
-<div class=card><h3>Raw Blackmagic BLE diagnostics</h3><p class=muted>This is captured directly from the Incoming Camera Control BLE notification before CCU decoding. Do STBY -> REC -> STOP, then change codec/quality and send me these lines.</p><pre id=ccu>No raw notifications yet</pre></div>
-<div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button></div>
+<div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><h4>Raw Blackmagic BLE</h4><pre id=rawble>No raw incoming BLE packets yet</pre><button onclick=refresh()>Refresh</button></div>
 
 <script>
 const el=id=>document.getElementById(id);
@@ -47,15 +46,14 @@ function cameraLine(c){
   const link=c.connected?'Connected':'Offline';
   const ready=c.controlReady?'Control ready':'Control not ready';
   const rec=c.recording?'RECORDING':'Standby';
-  const media=c.mediaRemaining&&c.mediaRemaining!='--'?` | Media ${c.mediaRemaining}`:'';
-  return `${link} | ${ready} | ${rec}${media}`;
+  return `${link} | ${ready} | ${rec} | ${c.timecode}`;
 }
 function osdPreview(c){
-  if(!c.connected) return 'CAM OFFLINE | MEDIA --';
-  if(c.waitingPin) return 'CAM ENTER PIN | MEDIA --';
-  const state=c.recording?'REC':'STBY';
-  const media=c.mediaRemaining&&c.mediaRemaining!='--'?`LEFT ${c.mediaRemaining}`:'MEDIA --';
-  return `${state} | ${media}`;
+  if(!c.connected) return 'BMD OFFLINE';
+  if(c.waitingPin) return 'BMD ENTER PIN';
+  if(c.recording) return `REC ${c.timecode}`;
+  if(c.ready || c.paired) return `BMD STBY ${c.timecode}`;
+  return c.status || 'BMD';
 }
 function drawChannels(s){
   const box=el('channels');box.innerHTML='';
@@ -71,6 +69,7 @@ async function refresh(){
   try{
     const s=await api('/api/status');
     el('status').textContent=JSON.stringify(s,null,2);
+    const raw=(s.rawBle||[]);el('rawble').textContent=raw.length?raw.map(p=>`#${p.seq} LEN ${p.len} DATA ${p.data}`).join('\n'):'No raw incoming BLE packets yet';
     el('pin').style.display=s.camera.waitingPin?'block':'none';
     el('camSummary').textContent=cameraLine(s.camera)+(s.camera.model?` | ${s.camera.model}`:'');
     const linked=s.camera.connected && s.camera.controlReady;
@@ -81,7 +80,6 @@ async function refresh(){
     el('mspStats').textContent=`Responses: ${s.msp.responses} | Timeouts: ${s.msp.timeouts} | Invalid frames: ${s.msp.invalidFrames}`;
     el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;el('slot').value=s.settings.slot;
     drawChannels(s);
-    try{const r=await fetch('/api/ccu');el('ccu').textContent=await r.text()}catch(e){el('ccu').textContent='Raw BLE diagnostic error: '+e.message}
   }catch(e){el('status').textContent='Status error: '+e.message;el('mspSummary').textContent='ESP web API unavailable'}
 }
 async function scan(){
@@ -114,14 +112,14 @@ String WebUi::statusJson(){
     const size_t count = min(mspClient.rcCount(), (size_t)16);
     for(size_t i=0;i<count;i++){ if(i)j+=','; j+=String(mspClient.rcValue(i)); }
     j += "]},";
-    j += "\"settings\":{\"rx\":6,\"tx\":7,\"baud\":115200,\"channel\":"+String(s.recordChannel)+",\"threshold\":"+String(s.recordThreshold)+",\"high\":"+String(s.recordActiveHigh?"true":"false")+",\"slot\":"+String(s.osdSlot)+"}}";
+    j += "\"settings\":{\"rx\":6,\"tx\":7,\"baud\":115200,\"channel\":"+String(s.recordChannel)+",\"threshold\":"+String(s.recordThreshold)+",\"high\":"+String(s.recordActiveHigh?"true":"false")+",\"slot\":"+String(s.osdSlot)+"},";
+    j += "\"rawBle\":" + cam.rawBleDiagnosticsJson() + "}";
     return j;
 }
 
 void WebUi::routes(){
     server.on("/",HTTP_GET,[this](){server.send_P(200,"text/html",PAGE);});
     server.on("/api/status",HTTP_GET,[this](){server.send(200,"application/json",statusJson());});
-    server.on("/api/ccu",HTTP_GET,[this](){server.send(200,"text/plain",cam.diagnosticsText());});
     server.on("/api/scan",HTTP_GET,[this](){String j;cam.startScan(j);server.send(200,"application/json",j);});
     server.on("/api/connect",HTTP_GET,[this](){String a=server.arg("address");uint8_t t=(uint8_t)server.arg("type").toInt();bool ok=cam.connectTo(a,t);if(ok){s.cameraAddress=a;s.cameraAddressType=t;prefs.save(s);cam.setSavedTarget(a,t);}server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
     server.on("/api/pin",HTTP_GET,[this](){uint32_t p=(uint32_t)server.arg("value").toInt();bool ok=cam.submitPasskey(p);server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});

@@ -21,7 +21,7 @@ public:
     void setSavedTarget(const String& address, uint8_t type) { savedAddress = address; savedAddressType = type; }
     String currentAddress() const { return connectedAddress; }
     uint8_t currentAddressType() const { return connectedAddressType; }
-    String diagnosticsText() const;
+    String rawBleDiagnosticsJson() const;
 
 private:
     CameraState camState;
@@ -50,22 +50,20 @@ private:
     volatile bool postAuthRequested = false;
     uint32_t postAuthAtMs = 0;
 
-    struct RawNotification {
-        uint32_t seq = 0;
-        uint16_t len = 0;
-        char dataHex[145] = {0};   // first 48 bytes: "AA BB ..."
+    // v0.9.7 diagnostic capture: fixed-size raw BLE ring buffer.
+    // The BLE callback only memcpy()s bytes here; no String allocation or decoding.
+    static constexpr uint8_t RAW_RING_SLOTS = 12;
+    static constexpr uint8_t RAW_MAX_BYTES = 40;
+    struct RawBlePacket {
+        uint32_t seq;
+        uint8_t len;
+        uint8_t data[RAW_MAX_BYTES];
     };
-    static constexpr uint8_t RAW_DIAG_COUNT = 20;
-    RawNotification rawPackets[RAW_DIAG_COUNT];
+    volatile uint32_t rawSeq = 0;
     volatile uint8_t rawWriteIndex = 0;
-    volatile uint32_t rawSequence = 0;
+    RawBlePacket rawRing[RAW_RING_SLOTS] = {};
 
-    void captureRawNotification(const uint8_t* data, size_t len);
-
-    volatile int32_t pendingMediaSeconds = -1;
-    volatile bool pendingMediaOverflow = false;
-    volatile bool pendingMediaUpdate = false;
-    int8_t activeMediaSlot = -1;
+    void captureRawIncoming(const uint8_t* data, size_t len);
 
     class ClientCallbacks : public NimBLEClientCallbacks {
     public:

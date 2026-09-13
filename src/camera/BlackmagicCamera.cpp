@@ -221,29 +221,6 @@ bool BlackmagicCamera::discoverAndSubscribe() {
 }
 
 void BlackmagicCamera::loop() {
-    // Apply media time outside the NimBLE callback. Keep BLE notifications light: they
-    // only copy validated primitive values, while String formatting happens here.
-    if (pendingMediaUpdate) {
-        const int32_t seconds = pendingMediaSeconds;
-        const bool overflow = pendingMediaOverflow;
-        pendingMediaUpdate = false;
-        camState.mediaRemainingSeconds = seconds;
-        camState.mediaRemainingOverflow = overflow;
-        if (seconds < 0) {
-            camState.mediaRemaining = "--";
-        } else if (seconds == 0) {
-            camState.mediaRemaining = "FULL";
-        } else {
-            const uint32_t total = (uint32_t)seconds;
-            const uint32_t hours = total / 3600UL;
-            const uint32_t mins = (total % 3600UL) / 60UL;
-            char label[20];
-            if (hours > 0) snprintf(label, sizeof(label), "%luh%02lum%s", (unsigned long)hours, (unsigned long)mins, overflow ? "+" : "");
-            else snprintf(label, sizeof(label), "%lum%s", (unsigned long)((total + 59UL) / 60UL), overflow ? "+" : "");
-            camState.mediaRemaining = label;
-        }
-    }
-
     // NimBLE authentication callbacks run in the BLE host context. Do the service
     // subscription work here instead of inside the callback so we do not block it.
     if (postAuthRequested && !passkeyPending && client && client->isConnected() && millis() >= postAuthAtMs) {
@@ -388,10 +365,7 @@ void BlackmagicCamera::forgetPairing() {
 
 void BlackmagicCamera::incomingNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
     if (!instance) return;
-    // v0.9.6: tap the BLE notification at the lowest level, before any CCU
-    // interpretation. This lets the web diagnostics show packets even when our
-    // parser does not understand them.
-    instance->captureRawNotification(data, len);
+    instance->captureRawIncoming(data, len);
     instance->parseIncoming(data, len);
 }
 void BlackmagicCamera::timecodeNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
@@ -401,46 +375,38 @@ void BlackmagicCamera::statusNotify(NimBLERemoteCharacteristic*, uint8_t* data, 
     if (instance) instance->parseStatus(data, len);
 }
 
-void BlackmagicCamera::captureRawNotification(const uint8_t* data, size_t len) {
+void BlackmagicCamera::captureRawIncoming(const uint8_t* data, size_t len) {
     if (!data || !len) return;
-    const uint8_t idx = rawWriteIndex % RAW_DIAG_COUNT;
-    RawNotification& r = rawPackets[idx];
-    r.seq = ++rawSequence;
-    r.len = (uint16_t)min(len, (size_t)65535);
-
-    const size_t dumpLen = min(len, (size_t)48);
-    size_t pos = 0;
-    r.dataHex[0] = '\0';
-    for (size_t i = 0; i < dumpLen && pos + 4 < sizeof(r.dataHex); ++i) {
-        const int n = snprintf(&r.dataHex[pos], sizeof(r.dataHex) - pos,
-                               i ? " %02X" : "%02X", (unsigned)data[i]);
-        if (n <= 0) break;
-        pos += (size_t)n;
-    }
-    if (len > dumpLen && pos + 4 < sizeof(r.dataHex)) {
-        snprintf(&r.dataHex[pos], sizeof(r.dataHex) - pos, " ...");
-    }
-    rawWriteIndex = (uint8_t)((idx + 1) % RAW_DIAG_COUNT);
+    const uint8_t idx = rawWriteIndex;
+    RawBlePacket& pkt = rawRing[idx];
+    const size_t copyLen = len > RAW_MAX_BYTES ? RAW_MAX_BYTES : len;
+    pkt.seq = ++rawSeq;
+    pkt.len = (uint8_t)copyLen;
+    memcpy(pkt.data, data, copyLen);
+    rawWriteIndex = (uint8_t)((idx + 1) % RAW_RING_SLOTS);
 }
 
-String BlackmagicCamera::diagnosticsText() const {
-    String out;
-    out.reserve(4200);
-    const uint32_t newest = rawSequence;
-    const uint32_t start = newest > RAW_DIAG_COUNT ? newest - RAW_DIAG_COUNT + 1 : 1;
-    for (uint32_t seq = start; seq <= newest; ++seq) {
-        const RawNotification* found = nullptr;
-        for (uint8_t i = 0; i < RAW_DIAG_COUNT; ++i) {
-            if (rawPackets[i].seq == seq) { found = &rawPackets[i]; break; }
+String BlackmagicCamera::rawBleDiagnosticsJson() const {
+    String out = "[";
+    const uint8_t end = rawWriteIndex;
+    bool first = true;
+    // Oldest -> newest. Slots with seq==0 have never been written.
+    for (uint8_t n = 0; n < RAW_RING_SLOTS; n++) {
+        const uint8_t idx = (uint8_t)((end + n) % RAW_RING_SLOTS);
+        const RawBlePacket pkt = rawRing[idx];
+        if (pkt.seq == 0) continue;
+        if (!first) out += ',';
+        first = false;
+        out += "{\"seq\":" + String(pkt.seq) + ",\"len\":" + String(pkt.len) + ",\"data\":\"";
+        for (uint8_t i = 0; i < pkt.len; i++) {
+            char b[4];
+            snprintf(b, sizeof(b), "%02X", (unsigned)pkt.data[i]);
+            if (i) out += ' ';
+            out += b;
         }
-        if (!found) continue;
-        char line[230];
-        snprintf(line, sizeof(line), "#%lu LEN %u DATA %s",
-                 (unsigned long)found->seq, (unsigned)found->len, found->dataHex);
-        if (out.length()) out += '\n';
-        out += line;
+        out += "\"}";
     }
-    if (!out.length()) out = "No raw Incoming Camera Control notifications yet";
+    out += "]";
     return out;
 }
 
@@ -486,53 +452,11 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
             const uint8_t* value = &data[p + 8];
 
             // Media / Transport Mode. First int8 value is mode:
-            // 0 Preview, 1 Play, 2 Record. Byte 2 contains active-media flags.
+            // 0 Preview, 1 Play, 2 Record.
             if (category == 10 && parameter == 1 && dataType == 1 && operation == 0 && valueLen >= 1) {
                 const uint8_t mode = value[0];
                 camState.recording = (mode == 2);
                 camState.status = camState.recording ? "REC" : "BMD READY";
-                if (valueLen >= 3) {
-                    const uint8_t flags = value[2];
-                    if (flags & 0x20) activeMediaSlot = 0;
-                    else if (flags & 0x40) activeMediaSlot = 1;
-                    else if (flags & 0x10) activeMediaSlot = 2;
-                }
-            }
-
-            // Status / Remaining Record Time. Pocket 4K firmware 8.1 reports one
-            // little-endian signed int16 per media slot. Positive values are seconds;
-            // negative values are minutes. INT16_MIN is the overflow sentinel.
-            // Validate every length before reading and only copy primitive data here.
-            if (category == 9 && parameter == 2 && dataType == 2 && operation == 2 && valueLen >= 2 && (valueLen % 2u) == 0u) {
-                const size_t slotCount = valueLen / 2u;
-                size_t chosen = (activeMediaSlot >= 0 && (size_t)activeMediaSlot < slotCount) ? (size_t)activeMediaSlot : 0u;
-
-                auto decodeSlot = [&](size_t idx, int32_t& secondsOut, bool& overflowOut) {
-                    const uint16_t raw16 = (uint16_t)value[idx * 2u] | ((uint16_t)value[idx * 2u + 1u] << 8);
-                    const int16_t t = (int16_t)raw16;
-                    overflowOut = false;
-                    if (t == INT16_MIN) { overflowOut = true; secondsOut = 65535L * 60L; return; }
-                    if (t < 0) secondsOut = (int32_t)(-((int32_t)t)) * 60L;
-                    else secondsOut = (int32_t)t;
-                };
-
-                int32_t seconds = -1;
-                bool overflow = false;
-                decodeSlot(chosen, seconds, overflow);
-
-                // Until a transport packet identifies the active slot, prefer the first
-                // slot with a positive remaining-time value.
-                if (activeMediaSlot < 0 && seconds <= 0 && slotCount > 1u) {
-                    for (size_t i = 1; i < slotCount; ++i) {
-                        int32_t candidate = -1; bool candidateOverflow = false;
-                        decodeSlot(i, candidate, candidateOverflow);
-                        if (candidate > 0) { chosen = i; seconds = candidate; overflow = candidateOverflow; break; }
-                    }
-                }
-
-                pendingMediaSeconds = seconds;
-                pendingMediaOverflow = overflow;
-                pendingMediaUpdate = true;
             }
         }
 
