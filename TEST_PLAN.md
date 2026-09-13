@@ -1,8 +1,8 @@
-# FPVCineCam32 v0.9.3 test plan
+# FPVCineCam32 v0.9 test plan
 
 ## 1. Regression
 
-- Flash v0.9.3.
+- Flash v0.9.
 - Confirm the remembered BMPCC 4K reconnects.
 - Confirm the camera badge turns green.
 - Confirm the TX16S record switch still starts/stops the camera.
@@ -28,7 +28,7 @@ Press **Send OSD test**. Expected:
 - first slot: `REC TEST`
 - second slot: `MEDIA TEST`
 
-Normal operation currently shows `MEDIA --` in the second slot. v0.9.3 deliberately disables the media-remaining decoder and keeps raw BLE packet diagnostics. This build is specifically to confirm whether the v0.9.1 media decoder caused the Wi-Fi/startup regression.
+Normal operation currently shows `MEDIA --` in the second slot. v0.9 deliberately does not invent a remaining-time value; it captures incoming BLE packet diagnostics so the Pocket 4K media payload can be decoded correctly next.
 
 ## 4. Camera reconnect
 

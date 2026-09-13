@@ -1,10 +1,8 @@
-# FPVCineCam32 v0.9.3
+# FPVCineCam32 v0.9
 
 FPVCineCam32 bridges Betaflight MSP RC channels to a Blackmagic Pocket Cinema Camera 4K over BLE, and sends camera status back to Betaflight Custom Messages for DJI OSD.
 
-This is a diagnostic rollback based on the known-good v0.9 runtime path. The v0.9.1 media-remaining parser is removed; raw incoming BLE packet diagnostics remain available. REC/STBY and MSP Custom Message behavior are otherwise kept intact.
-
-## v0.9.3 diagnostic rollback
+## v0.9 changes
 
 - Keeps the proven v0.8 TX16S -> Crossfire -> Betaflight -> MSP -> ESP32 -> BMPCC REC/STOP control path.
 - Removes timecode from the flight OSD.
@@ -30,7 +28,7 @@ ESP32-C3 SuperMini UART is fixed:
 If the selected slot is Custom Message 1, place both Custom Message 1 and Custom Message 2 in the Betaflight OSD layout.
 
 - Message 1 = camera record state
-- Message 2 = media remaining (decoder intentionally disabled in v0.9.3)
+- Message 2 = media remaining (decoder work in progress in v0.9)
 
 `Send OSD test` sends `REC TEST` and `MEDIA TEST` to prove both elements are visible.
 
