@@ -12,6 +12,7 @@ struct CameraState {
     float fps = 0.0f;
     String timecode = "--:--:--:--";
     String model = "";
+    String protocolVersion = "";
     String status = "OFFLINE";
 };
 

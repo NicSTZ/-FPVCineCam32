@@ -30,13 +30,20 @@ private:
     NimBLERemoteCharacteristic* timecode = nullptr;
     NimBLERemoteCharacteristic* statusChar = nullptr;
     NimBLERemoteCharacteristic* modelChar = nullptr;
+    NimBLERemoteCharacteristic* protocolChar = nullptr;
+
     String savedAddress, connectedAddress;
     uint8_t savedAddressType = 0, connectedAddressType = 0;
+
     volatile bool passkeyPending = false;
     volatile uint16_t pendingConnHandle = BLE_HS_CONN_HANDLE_NONE;
+    volatile bool connectRequested = false;
+    volatile bool connectTaskRunning = false;
+    String requestedAddress;
+    uint8_t requestedAddressType = 0;
+
     bool serviceReady = false;
     bool subscriptionsReady = false;
-    bool powerHandshakeDone = false;
     bool reconnectWanted = false;
     uint32_t nextReconnectMs = 0;
 
@@ -47,11 +54,15 @@ private:
         void onDisconnect(NimBLEClient* c, int reason) override;
         void onPassKeyEntry(NimBLEConnInfo& connInfo) override;
         void onAuthenticationComplete(NimBLEConnInfo& connInfo) override;
-    private: BlackmagicCamera* o;
+    private:
+        BlackmagicCamera* o;
     } callbacks;
 
+    void performConnect(const String& address, uint8_t addressType);
+    static void connectTaskThunk(void* arg);
     bool discoverAndSubscribe();
-    bool writePowerHandshake();
+    bool triggerPairingByEncryptedWrite();
+    void readIdentity();
     void parseIncoming(const uint8_t* data, size_t len);
     void parseTimecode(const uint8_t* data, size_t len);
     void parseStatus(const uint8_t* data, size_t len);

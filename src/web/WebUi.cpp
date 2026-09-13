@@ -4,7 +4,7 @@
 const char WebUi::PAGE[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1"><title>FPVCineCam32</title>
 <style>body{font-family:-apple-system,Arial;max-width:760px;margin:24px auto;padding:0 16px;background:#111;color:#eee}h1{margin-bottom:4px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}button,input,select{font-size:16px;padding:10px;margin:5px;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}pre{white-space:pre-wrap}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}@media(max-width:600px){.grid{grid-template-columns:1fr}}</style></head><body>
-<h1>FPVCineCam32 <small>v0.2</small></h1><div>Blackmagic Pocket Cinema Camera 4K prototype</div>
+<h1>FPVCineCam32 <small>v0.3</small></h1><div>Blackmagic Pocket Cinema Camera 4K prototype</div>
 <div class=card><h3>Status</h3><pre id=status>Loading…</pre><button onclick=refresh()>Refresh</button></div>
 <div class=card><h3>Blackmagic pairing</h3><button onclick=scan()>Scan for cameras</button><div id=cams></div><div id=pin style="display:none"><p class=warn>Enter the 6-digit PIN shown on the BMPCC 4K:</p><input id=pinval inputmode=numeric maxlength=6 placeholder=123456><button onclick=sendPin()>Submit PIN</button></div><br><button onclick=forget()>Forget pairing</button></div>
 <div class=card><h3>Betaflight / MSP</h3><p>Wire FC TX → ESP RX and FC RX → ESP TX. Put <b>MSP</b> on that FC UART. Betaflight 2025.12+ required for Custom Message OSD.</p><div class=grid>
@@ -55,7 +55,7 @@ void WebUi::stopWifi(){ if(!running)return; server.stop(); WiFi.softAPdisconnect
 String WebUi::statusJson(){
     const CameraState& c=cam.state();
     String j="{\"camera\":{";
-    j += "\"status\":\""+c.status+"\",\"model\":\""+c.model+"\",\"connected\":"+String(c.connected?"true":"false")+",\"paired\":"+String(c.paired?"true":"false")+",\"ready\":"+String(c.ready?"true":"false")+",\"recording\":"+String(c.recording?"true":"false")+",\"timecode\":\""+c.timecode+"\",\"waitingPin\":"+String(cam.waitingForPasskey()?"true":"false")+"},";
+    j += "\"status\":\""+c.status+"\",\"model\":\""+c.model+"\",\"protocol\":\""+c.protocolVersion+"\",\"connected\":"+String(c.connected?"true":"false")+",\"paired\":"+String(c.paired?"true":"false")+",\"ready\":"+String(c.ready?"true":"false")+",\"recording\":"+String(c.recording?"true":"false")+",\"timecode\":\""+c.timecode+"\",\"waitingPin\":"+String(cam.waitingForPasskey()?"true":"false")+"},";
     j += "\"msp\":{\"connected\":"+String(mspClient.connected()?"true":"false")+",\"api\":\""+String(mspClient.apiMajor())+"."+String(mspClient.apiMinor())+"\"},";
     j += "\"settings\":{\"rx\":"+String(s.uartRxPin)+",\"tx\":"+String(s.uartTxPin)+",\"baud\":"+String(s.uartBaud)+",\"channel\":"+String(s.recordChannel)+",\"threshold\":"+String(s.recordThreshold)+",\"high\":"+String(s.recordActiveHigh?"true":"false")+",\"slot\":"+String(s.osdSlot)+"}}";
     return j;
