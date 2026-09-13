@@ -1,4 +1,4 @@
-# FPVCineCam32 v0.7 bench test plan
+# FPVCineCam32 v0.8 bench test plan
 
 Test one layer at a time.
 
@@ -12,7 +12,7 @@ Test one layer at a time.
 
 ## 2. Wire Betaflight MSP
 
-ESP32-C3 SuperMini v0.7 uses fixed pins:
+ESP32-C3 SuperMini v0.8 uses fixed pins:
 
 - FC TX -> ESP GPIO6 (RX)
 - FC RX -> ESP GPIO7 (TX)
@@ -72,4 +72,17 @@ Fault isolation:
 
 ## 7. Wi-Fi note
 
-v0.7 intentionally keeps Wi-Fi on indefinitely for bench testing. Restore automatic Wi-Fi shutdown only after MSP and OSD are proven.
+v0.8 intentionally keeps Wi-Fi on indefinitely for bench testing. Restore automatic Wi-Fi shutdown only after MSP and OSD are proven.
+
+
+## v0.8 - Custom Message return path
+
+1. In Betaflight OSD, place Custom Message 1 on the active OSD profile (or select the matching slot in FPVCineCam32).
+2. Power FC + ESP and connect the BMPCC.
+3. Confirm the web UI badge turns green when camera control is ready.
+4. Press **Send OSD test**. The goggles should show `BMD LINK TEST`.
+5. Leave the test button alone and verify the live message changes automatically:
+   - camera off/disconnected -> `BMD OFFLINE`
+   - connected/standby -> `BMD STBY ...`
+   - recording -> `REC ...`
+6. Power-cycle the camera and confirm the badge returns green and the Custom Message recovers without rebooting the ESP.
