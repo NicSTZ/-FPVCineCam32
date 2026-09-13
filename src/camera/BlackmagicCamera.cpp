@@ -221,30 +221,6 @@ bool BlackmagicCamera::discoverAndSubscribe() {
 }
 
 void BlackmagicCamera::loop() {
-    // Do all String formatting outside the NimBLE callback. This keeps the radio
-    // callback path as close as possible to the known-good v0.9 build.
-    if (pendingMediaUpdate) {
-        const int32_t seconds = pendingMediaSeconds;
-        const bool overflow = pendingMediaOverflow;
-        pendingMediaUpdate = false;
-        camState.mediaRemainingSeconds = seconds;
-        camState.mediaRemainingOverflow = overflow;
-
-        if (seconds < 0) {
-            camState.mediaRemaining = "--";
-        } else if (seconds == 0) {
-            camState.mediaRemaining = "FULL";
-        } else {
-            const uint32_t total = (uint32_t)seconds;
-            const uint32_t hours = total / 3600UL;
-            const uint32_t mins = (total % 3600UL) / 60UL;
-            char label[16];
-            if (hours) snprintf(label, sizeof(label), "%luh%02lum%s", (unsigned long)hours, (unsigned long)mins, overflow ? "+" : "");
-            else snprintf(label, sizeof(label), "%lum%s", (unsigned long)((total + 59UL) / 60UL), overflow ? "+" : "");
-            camState.mediaRemaining = label;
-        }
-    }
-
     // NimBLE authentication callbacks run in the BLE host context. Do the service
     // subscription work here instead of inside the callback so we do not block it.
     if (postAuthRequested && !passkeyPending && client && client->isConnected() && millis() >= postAuthAtMs) {
@@ -439,55 +415,11 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
             const uint8_t* value = &data[p + 8];
 
             // Media / Transport Mode. First int8 value is mode:
-            // 0 Preview, 1 Play, 2 Record. The transport flags also identify
-            // the active media slot when the camera supplies them.
+            // 0 Preview, 1 Play, 2 Record.
             if (category == 10 && parameter == 1 && dataType == 1 && operation == 0 && valueLen >= 1) {
                 const uint8_t mode = value[0];
                 camState.recording = (mode == 2);
                 camState.status = camState.recording ? "REC" : "BMD READY";
-                if (valueLen >= 3) {
-                    const uint8_t flags = value[2];
-                    if (flags & 0x20) activeMediaSlot = 0;
-                    else if (flags & 0x40) activeMediaSlot = 1;
-                    else if (flags & 0x10) activeMediaSlot = 2;
-                }
-            }
-
-            // Blackmagic's camera-status payload used by Pocket cameras for
-            // remaining record time: one signed little-endian int16 per media
-            // slot. Positive = seconds, negative = minutes, INT16_MIN = overflow.
-            // This is intentionally the only new telemetry decoder in this build.
-            if (category == 9 && parameter == 2 && dataType == 2 && operation == 2 &&
-                valueLen >= 2 && (valueLen % 2u) == 0u) {
-                const size_t slotCount = valueLen / 2u;
-                size_t chosen = (activeMediaSlot >= 0 && (size_t)activeMediaSlot < slotCount)
-                                  ? (size_t)activeMediaSlot : 0u;
-
-                auto decodeSlot = [&](size_t idx, int32_t& secondsOut, bool& overflowOut) {
-                    const uint16_t raw16 = (uint16_t)value[idx * 2u] | ((uint16_t)value[idx * 2u + 1u] << 8);
-                    const int16_t t = (int16_t)raw16;
-                    overflowOut = false;
-                    if (t == INT16_MIN) { overflowOut = true; secondsOut = 65535L * 60L; return; }
-                    secondsOut = t < 0 ? (int32_t)(-((int32_t)t)) * 60L : (int32_t)t;
-                };
-
-                int32_t seconds = -1;
-                bool overflow = false;
-                decodeSlot(chosen, seconds, overflow);
-
-                // If we have not yet learned the active slot, prefer the first
-                // slot carrying a positive time value.
-                if (activeMediaSlot < 0 && seconds <= 0 && slotCount > 1u) {
-                    for (size_t i = 1; i < slotCount; ++i) {
-                        int32_t candidate = -1; bool candidateOverflow = false;
-                        decodeSlot(i, candidate, candidateOverflow);
-                        if (candidate > 0) { seconds = candidate; overflow = candidateOverflow; break; }
-                    }
-                }
-
-                pendingMediaSeconds = seconds;
-                pendingMediaOverflow = overflow;
-                pendingMediaUpdate = true;
             }
         }
 

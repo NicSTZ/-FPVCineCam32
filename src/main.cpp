@@ -98,9 +98,9 @@ void loop() {
     if(now-lastOsdUpdate>=500){
         lastOsdUpdate=now;
         msp.setCustomText(settings.osdSlot, osdStatusText());
-        // Clean-media build: second Custom Message stays dedicated to remaining
-        // recording time. If the camera does not publish the status packet it
-        // safely stays MEDIA --.
+        // v0.9 uses the next Custom Message slot for media remaining. Until we
+        // have decoded the Pocket 4K's media-remaining BLE payload this cleanly
+        // shows MEDIA -- instead of bogus timecode data.
         if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
     }
 
