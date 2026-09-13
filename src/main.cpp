@@ -11,12 +11,13 @@ AppSettings settings;
 MspClient msp(FcSerial);
 BlackmagicCamera camera;
 WebUi* web = nullptr;
+String setupApName;
 
 static constexpr int ESP_RX_PIN = 6;
 static constexpr int ESP_TX_PIN = 7;
 static constexpr uint32_t MSP_BAUD = 115200;
 
-static uint32_t lastRcRequest = 0, lastApiRequest = 0, lastOsdUpdate = 0, lastRecordAttempt = 0;
+static uint32_t lastRcRequest = 0, lastApiRequest = 0, lastOsdUpdate = 0, lastRecordAttempt = 0, lastWifiRetry = 0;
 static bool recordMapInitialized = false;
 static bool lastAppliedRecordState = false;
 static bool lastControlReady = false;
@@ -51,16 +52,22 @@ void setup() {
     settingsStore.begin();
     settings = settingsStore.load();
 
+    // v0.9.2: bring the setup AP up FIRST. Wi-Fi and BLE share the C3 radio,
+    // so BLE auto-reconnect is deliberately held back until the AP is established.
+    uint64_t mac = ESP.getEfuseMac();
+    char ap[32]; snprintf(ap,sizeof(ap),"FPVCineCam32-%04X",(uint16_t)(mac&0xffff));
+    setupApName = ap;
+    web = new WebUi(settings,settingsStore,camera,msp);
+    web->begin(setupApName);
+    delay(500);
+
     // ESP32-C3 SuperMini hardware profile. Keep these fixed so wiring is predictable.
     msp.begin(ESP_RX_PIN, ESP_TX_PIN, MSP_BAUD);
+    delay(100);
 
     camera.begin();
     camera.setSavedTarget(settings.cameraAddress, settings.cameraAddressType);
-
-    uint64_t mac = ESP.getEfuseMac();
-    char ap[32]; snprintf(ap,sizeof(ap),"FPVCineCam32-%04X",(uint16_t)(mac&0xffff));
-    web = new WebUi(settings,settingsStore,camera,msp);
-    web->begin(ap);
+    delay(100);
 
     if (settings.autoConnect && settings.cameraAddress.length()) camera.connectTo(settings.cameraAddress,settings.cameraAddressType);
     msp.requestApiVersion();
@@ -72,6 +79,14 @@ void loop() {
     if(web) web->loop();
 
     const uint32_t now=millis();
+
+    // If AP startup failed completely, keep retrying in the background instead
+    // of requiring repeated power cycles. This only runs while the web UI is down.
+    if (web && !web->active() && now-lastWifiRetry>=5000) {
+        lastWifiRetry=now;
+        web->begin(setupApName);
+    }
+
     if(now-lastRcRequest>=100){ lastRcRequest=now; msp.requestRc(); }
     if(now-lastApiRequest>=5000){ lastApiRequest=now; msp.requestApiVersion(); }
 
@@ -98,7 +113,7 @@ void loop() {
     if(now-lastOsdUpdate>=500){
         lastOsdUpdate=now;
         msp.setCustomText(settings.osdSlot, osdStatusText());
-        // v0.9.1 uses the next Custom Message slot for the Pocket camera's
+        // v0.9.2 uses the next Custom Message slot for the Pocket camera's
         // Status / Remaining Record Time value.
         if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
     }

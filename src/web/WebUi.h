@@ -9,7 +9,7 @@ class WebUi {
 public:
     WebUi(AppSettings& settings, SettingsStore& store, BlackmagicCamera& camera, MspClient& msp)
       : s(settings), prefs(store), cam(camera), mspClient(msp), server(80) {}
-    void begin(const String& apName);
+    bool begin(const String& apName);
     void loop();
     bool active() const { return running; }
     void stopWifi();
