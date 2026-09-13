@@ -1,8 +1,8 @@
-# FPVCineCam32 v0.9
+# FPVCineCam32 v0.10
 
 FPVCineCam32 bridges Betaflight MSP RC channels to a Blackmagic Pocket Cinema Camera 4K over BLE, and sends camera status back to Betaflight Custom Messages for DJI OSD.
 
-## v0.9 changes
+## v0.10 changes
 
 - Keeps the proven v0.8 TX16S -> Crossfire -> Betaflight -> MSP -> ESP32 -> BMPCC REC/STOP control path.
 - Removes timecode from the flight OSD.
@@ -28,7 +28,7 @@ ESP32-C3 SuperMini UART is fixed:
 If the selected slot is Custom Message 1, place both Custom Message 1 and Custom Message 2 in the Betaflight OSD layout.
 
 - Message 1 = camera record state
-- Message 2 = media remaining (decoder work in progress in v0.9)
+- Message 2 = media remaining (decoder work in progress in v0.10)
 
 `Send OSD test` sends `REC TEST` and `MEDIA TEST` to prove both elements are visible.
 
@@ -39,3 +39,18 @@ The GitHub Pages installer uses ESP Web Tools and the binaries produced by the e
 ## License
 
 MIT. Blackmagic Design and Betaflight are trademarks/projects of their respective owners. This project is independent and uses publicly documented protocols.
+
+
+## v0.10 Wi-Fi / BLE coexistence cleanup
+
+Built directly from the proven v0.9 control baseline. Camera BLE pairing/control logic is unchanged.
+
+- Starts the Wi-Fi SoftAP before BLE initialization and gives it a short 750 ms head start.
+- Keeps the proven BMPCC BLE pairing, reconnect and REC/STOP code unchanged.
+- Slows configurator status polling from 500 ms to 1500 ms.
+- If no phone/computer joins the AP within 90 seconds of boot, Wi-Fi switches off automatically.
+- If a client is connected, Wi-Fi stays available for setup.
+- Adds a **Disable Wi-Fi now** button.
+- Wi-Fi always returns on the next reboot.
+- BLE, MSP and OSD continue after Wi-Fi shuts down.
+- No ISO/media telemetry experiments in this build.

@@ -20,6 +20,8 @@ static uint32_t lastRcRequest = 0, lastApiRequest = 0, lastOsdUpdate = 0, lastRe
 static bool recordMapInitialized = false;
 static bool lastAppliedRecordState = false;
 static bool lastControlReady = false;
+static uint32_t wifiStartedAt = 0;
+static constexpr uint32_t WIFI_SETUP_WINDOW_MS = 90000;
 
 static bool recordSwitchState(bool& valid) {
     const int idx = settings.recordChannel - 1;
@@ -54,13 +56,18 @@ void setup() {
     // ESP32-C3 SuperMini hardware profile. Keep these fixed so wiring is predictable.
     msp.begin(ESP_RX_PIN, ESP_TX_PIN, MSP_BAUD);
 
-    camera.begin();
-    camera.setSavedTarget(settings.cameraAddress, settings.cameraAddressType);
-
+    // Bring the setup AP up before starting BLE. Wi-Fi and BLE share the C3's
+    // 2.4 GHz radio, so giving SoftAP a clean head start makes setup discovery
+    // more predictable without changing the proven Blackmagic BLE control path.
     uint64_t mac = ESP.getEfuseMac();
     char ap[32]; snprintf(ap,sizeof(ap),"FPVCineCam32-%04X",(uint16_t)(mac&0xffff));
     web = new WebUi(settings,settingsStore,camera,msp);
     web->begin(ap);
+    wifiStartedAt = millis();
+    delay(750);
+
+    camera.begin();
+    camera.setSavedTarget(settings.cameraAddress, settings.cameraAddressType);
 
     if (settings.autoConnect && settings.cameraAddress.length()) camera.connectTo(settings.cameraAddress,settings.cameraAddressType);
     msp.requestApiVersion();
@@ -104,6 +111,13 @@ void loop() {
         if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
     }
 
-    // Development build: Wi-Fi stays on so live MSP channels/diagnostics can be observed.
+    // Setup Wi-Fi is temporary. If nobody joins the AP within 90 seconds,
+    // shut Wi-Fi down and leave BLE + MSP + OSD running. If a phone/laptop is
+    // connected, keep setup alive until it disconnects or the user presses
+    // "Disable Wi-Fi now" in the configurator. Wi-Fi returns on every reboot.
+    if (web && web->active() && (now - wifiStartedAt >= WIFI_SETUP_WINDOW_MS) && WiFi.softAPgetStationNum() == 0) {
+        web->stopWifi();
+    }
+
     delay(2);
 }

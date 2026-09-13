@@ -16,6 +16,7 @@ public:
 private:
     AppSettings& s; SettingsStore& prefs; BlackmagicCamera& cam; MspClient& mspClient;
     WebServer server; bool running=false;
+    bool stopRequested=false; uint32_t stopAtMs=0;
     void routes();
     String statusJson();
     static const char PAGE[] PROGMEM;

@@ -1,50 +1,12 @@
-# FPVCineCam32 v0.9 test plan
+# FPVCineCam32 v0.10 test plan
 
-## 1. Regression
-
-- Flash v0.9.
-- Confirm the remembered BMPCC 4K reconnects.
-- Confirm the camera badge turns green.
-- Confirm the TX16S record switch still starts/stops the camera.
-
-## 2. Record-state OSD
-
-Place the selected Custom Message slot in the Betaflight OSD.
-
-Expected:
-
-- Camera disconnected: `CAM OFFLINE`
-- Camera connected and idle: `STBY`
-- Camera recording: `REC`
-
-Flip REC/STOP repeatedly. The message should change immediately with the camera command.
-
-## 3. Second OSD message
-
-Place the next Custom Message slot in Betaflight OSD.
-
-Press **Send OSD test**. Expected:
-
-- first slot: `REC TEST`
-- second slot: `MEDIA TEST`
-
-Normal operation currently shows `MEDIA --` in the second slot. v0.9 deliberately does not invent a remaining-time value; it captures incoming BLE packet diagnostics so the Pocket 4K media payload can be decoded correctly next.
-
-## 4. Camera reconnect
-
-Power-cycle the BMPCC without rebooting the ESP. Confirm:
-
-- auto reconnect works
-- badge returns green
-- OSD returns to `STBY`
-- physical record switch still works after reconnect
-
-## 5. Diagnostic capture for media remaining
-
-Open the web diagnostics and note `lastIncoming` while:
-
-1. camera is idle
-2. camera starts recording
-3. media remaining changes on the camera display
-
-This raw packet snapshot is for finishing the remaining-record-time parser without guessing.
+1. Flash over USB with LiPo disconnected.
+2. Power-cycle normally.
+3. Confirm `FPVCineCam32-XXXX` appears promptly on phone and Mac if available.
+4. Connect to `192.168.4.1` and confirm the configurator loads.
+5. Confirm saved BMPCC reconnects and TX16S REC/STOP still works.
+6. Confirm DJI OSD still shows REC/STBY.
+7. Press **Disable Wi-Fi now** and confirm camera control + OSD continue.
+8. Reboot and confirm Wi-Fi returns.
+9. Final timer test: reboot and do not join the AP. After ~90 s it should disappear while camera control remains working.
+10. Repeat several cold boots to judge AP discovery consistency.
