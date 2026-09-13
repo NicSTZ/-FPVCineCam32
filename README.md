@@ -1,6 +1,6 @@
-# FPVCineCam32 v0.5 — BMPCC 4K + Betaflight
+# FPVCineCam32 v0.6 — BMPCC 4K + Betaflight
 
-## v0.5 pairing diagnostic changes
+## v0.6 pairing diagnostic changes
 
 - Camera connect runs in a background FreeRTOS task so the setup webpage remains responsive during BLE security negotiation.
 - Pairing is triggered using Blackmagic's documented method: write `0x01` (Camera Power On) to the encrypted Camera Status characteristic.
@@ -10,7 +10,7 @@
 
 Prototype firmware for an **ESP32-C3 SuperMini** that links a Blackmagic Pocket Cinema Camera 4K to Betaflight 2025.12+.
 
-## v0.5 goals
+## v0.6 goals
 
 - Blackmagic BLE scan, secure pairing and remembered bond
 - BMPCC 4K REC / STOP control
@@ -54,11 +54,11 @@ In Betaflight Ports, enable **MSP** on that spare UART at 115200. Do not assign 
 8. Test REC and STOP on the web page.
 9. Move the assigned radio AUX channel through its threshold. The camera should follow it.
 
-The setup AP automatically switches off 90 seconds after boot once a paired camera is connected. This reduces Wi-Fi/BLE coexistence traffic in flight. Hold the **BOOT** button while powering the ESP32 to keep setup Wi-Fi enabled.
+Development build v0.6 keeps the setup Wi-Fi AP enabled continuously so the web controls remain available during bench testing. Wi-Fi auto-off will be reconsidered once camera and MSP operation are proven stable.
 
-## Important v0.5 assumptions / diagnostics
+## Important v0.6 assumptions / diagnostics
 
-- Default UART pins are GPIO4 RX and GPIO3 TX, but **they are configurable** because C3 SuperMini clones vary.
+- Default UART pins are GPIO6 RX and GPIO7 TX, but **they are configurable** because C3 SuperMini clones vary.
 - Default REC channel is **CH11**, threshold 1500, high=REC.
 - The BMPCC secure pairing flow is implemented using NimBLE passkey injection from the web UI.
 - REC uses Blackmagic CCU `Media 10 / Transport mode 1`, mode 2=Record and 0=Preview.
@@ -92,7 +92,7 @@ Web Serial does **not** work from iOS Safari, so use a Mac/PC for browser flashi
 MIT. Blackmagic Design and Betaflight are trademarks/projects of their respective owners. This project is independent and uses publicly documented protocols.
 
 
-## v0.5 focus
+## v0.6 focus
 - Complete post-pair authentication setup and subscriptions.
 - Verify encrypted Outgoing Camera Control writes.
 - Add REC/STOP write diagnostics to the web Status panel.

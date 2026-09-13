@@ -1,4 +1,4 @@
-# FPVCineCam32 v0.5 bench test plan
+# FPVCineCam32 v0.6 bench test plan
 
 Do these in order. Do not troubleshoot multiple layers at once.
 
@@ -40,10 +40,10 @@ Do these in order. Do not troubleshoot multiple layers at once.
 - Web REC works, AUX fails: MSP RC mapping/threshold problem.
 - REC command works but state is wrong: incoming BMD transport parser/notification problem.
 - Pairing PIN never appears: encrypted Camera Status write did not initiate bonding; inspect serial logs and NimBLE security callback.
-- Random BLE dropouts in flight: disable setup Wi-Fi (automatic after 90 s) and retest before changing BLE logic.
+- If BLE becomes unstable during later flight testing, Wi-Fi coexistence can be revisited after the MSP path is proven.
 
 
-## v0.5 camera-control test
+## v0.6 camera-control test
 1. Confirm `paired`, `connected`, and `controlReady` become true.
 2. Press REC. `lastCommand` should become `REC` and `lastWrite` should report the GATT write result.
 3. Confirm the BMPCC4K actually starts recording and incoming state changes `recording` to true.

@@ -14,7 +14,7 @@ AppSettings SettingsStore::load() {
     s.cameraAddress = prefs.getString("camaddr", "");
     s.cameraAddressType = prefs.getUChar("camtype", 0);
     s.autoConnect = prefs.getBool("autoconn", true);
-    s.wifiAutoOff = prefs.getBool("wifioff", true);
+    s.wifiAutoOff = prefs.getBool("wifioff", false);
     return s;
 }
 

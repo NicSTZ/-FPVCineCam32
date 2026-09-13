@@ -3,8 +3,8 @@
 #include <Preferences.h>
 
 struct AppSettings {
-    int uartRxPin = 4;
-    int uartTxPin = 3;
+    int uartRxPin = 6;
+    int uartTxPin = 7;
     uint32_t uartBaud = 115200;
     int recordChannel = 11;       // Betaflight channel number, 1-based
     int recordThreshold = 1500;
@@ -13,7 +13,7 @@ struct AppSettings {
     String cameraAddress = "";
     uint8_t cameraAddressType = 0;
     bool autoConnect = true;
-    bool wifiAutoOff = true;
+    bool wifiAutoOff = false;
 };
 
 class SettingsStore {

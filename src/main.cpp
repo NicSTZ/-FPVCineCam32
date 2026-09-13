@@ -15,8 +15,7 @@ WebUi* web = nullptr;
 static uint16_t rc[18]{};
 static size_t rcCount = 0;
 static bool lastRecordSwitch = false;
-static uint32_t lastRcRequest = 0, lastApiRequest = 0, lastOsdUpdate = 0, bootMs = 0;
-static bool forceSetup = false;
+static uint32_t lastRcRequest = 0, lastApiRequest = 0, lastOsdUpdate = 0;
 
 static bool recordSwitchState() {
     int idx = settings.recordChannel - 1;
@@ -39,10 +38,6 @@ static String osdText() {
 void setup() {
     Serial.begin(115200);
     delay(250);
-    bootMs = millis();
-    pinMode(9, INPUT_PULLUP); // BOOT on most ESP32-C3 SuperMini boards
-    forceSetup = digitalRead(9) == LOW;
-
     settingsStore.begin();
     settings = settingsStore.load();
     msp.begin(settings.uartRxPin, settings.uartTxPin, settings.uartBaud);
@@ -75,10 +70,6 @@ void loop() {
 
     if(now-lastOsdUpdate>=500){lastOsdUpdate=now;msp.setCustomText(settings.osdSlot,osdText());}
 
-    // For flight reliability, stop 2.4GHz Wi-Fi AP after 90s once the camera is paired.
-    // Hold BOOT while powering the board to keep setup Wi-Fi alive indefinitely.
-    if(web && web->active() && settings.wifiAutoOff && !forceSetup && settings.cameraAddress.length() && camera.state().paired && !camera.waitingForPasskey() && now-bootMs>90000){
-        web->stopWifi();
-    }
+    // Development build: keep setup Wi-Fi available continuously.
     delay(2);
 }
