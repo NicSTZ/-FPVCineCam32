@@ -1,14 +1,14 @@
-# FPVCineCam32 v0.9.4
+# FPVCineCam32 v0.9.5
 
-Built directly from the known-good v0.9 source.
+Diagnostic build based directly on the stable v0.9.4 runtime.
 
-Changes in this build:
-- keeps the exact v0.9 startup order and Wi-Fi path
-- keeps proven REC/STBY control and MSP Custom Message output
-- adds a defensive Blackmagic remaining-record-time decoder
-- media packet validation happens in the BLE callback, but String formatting is deferred to the main loop
-- Custom Message 1: REC / STBY
-- Custom Message 2: LEFT 42m / LEFT 1h24m
-- webpage and installer version labels are v0.9.4
+## Purpose
+- Keep the proven Wi-Fi, BLE reconnect, MSP and REC/STBY paths unchanged.
+- Capture the actual Blackmagic CCU Change Configuration packets sent by the BMPCC4K.
+- Expose the last 10 decoded CCU commands on the controller webpage as `CAT / PARAM / TYPE / OP / LEN / DATA`.
+- Retain the current safe media-left decoder, but do not guess further until the real camera packets are observed.
 
-The Wi-Fi AP remains always on in this development build.
+## Test
+Open `192.168.4.1`, then perform STBY, REC, STOP and (ideally) change codec/quality so the camera's displayed remaining record time changes. Copy or screenshot the **Blackmagic CCU diagnostics** block.
+
+Installer, manifest and webpage labels are all v0.9.5.

@@ -21,6 +21,7 @@ public:
     void setSavedTarget(const String& address, uint8_t type) { savedAddress = address; savedAddressType = type; }
     String currentAddress() const { return connectedAddress; }
     uint8_t currentAddressType() const { return connectedAddressType; }
+    String diagnosticsText() const;
 
 private:
     CameraState camState;
@@ -48,6 +49,23 @@ private:
     uint32_t nextReconnectMs = 0;
     volatile bool postAuthRequested = false;
     uint32_t postAuthAtMs = 0;
+
+
+    struct DiagnosticPacket {
+        uint32_t seq = 0;
+        uint8_t category = 0;
+        uint8_t parameter = 0;
+        uint8_t dataType = 0;
+        uint8_t operation = 0;
+        uint8_t valueLen = 0;
+        char dataHex[97] = {0};
+    };
+    static constexpr uint8_t DIAG_COUNT = 10;
+    DiagnosticPacket diagPackets[DIAG_COUNT];
+    volatile uint8_t diagWriteIndex = 0;
+    volatile uint32_t diagSequence = 0;
+
+    void captureDiagnostic(uint8_t category, uint8_t parameter, uint8_t dataType, uint8_t operation, const uint8_t* value, size_t valueLen);
 
     volatile int32_t pendingMediaSeconds = -1;
     volatile bool pendingMediaOverflow = false;
