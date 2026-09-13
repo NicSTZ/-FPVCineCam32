@@ -1,12 +1,50 @@
-# FPVCineCam32 v0.9.2 test plan
+# FPVCineCam32 v0.9.3 test plan
 
-1. Upload the extracted v0.9.2 folder contents to the GitHub repo and wait for both Build and Pages to go green.
-2. Open the installer and verify it explicitly says **Firmware v0.9.2** before flashing.
-3. Flash with the quad LiPo disconnected; power the ESP32-C3 from USB.
-4. After reboot, look for `FPVCineCam32-XXXX` immediately. Do not repeatedly reboot it; if first AP startup fails, v0.9.2 retries automatically.
-5. Join the AP with password `fpvcinecam32` and open `192.168.4.1`.
-6. Verify the page header says **FPVCineCam32 v0.9.2**.
-7. Power the normal system and confirm the Blackmagic camera reconnects and the camera badge turns green.
-8. Confirm the Betaflight panel still shows MSP connected and live RC channels.
-9. Confirm Custom Message 1 changes `STBY` <-> `REC` with the mapped switch.
-10. Confirm Custom Message 2 shows `LEFT <time>` if remaining-media data is received; otherwise capture the Diagnostics block for the next targeted media fix.
+## 1. Regression
+
+- Flash v0.9.3.
+- Confirm the remembered BMPCC 4K reconnects.
+- Confirm the camera badge turns green.
+- Confirm the TX16S record switch still starts/stops the camera.
+
+## 2. Record-state OSD
+
+Place the selected Custom Message slot in the Betaflight OSD.
+
+Expected:
+
+- Camera disconnected: `CAM OFFLINE`
+- Camera connected and idle: `STBY`
+- Camera recording: `REC`
+
+Flip REC/STOP repeatedly. The message should change immediately with the camera command.
+
+## 3. Second OSD message
+
+Place the next Custom Message slot in Betaflight OSD.
+
+Press **Send OSD test**. Expected:
+
+- first slot: `REC TEST`
+- second slot: `MEDIA TEST`
+
+Normal operation currently shows `MEDIA --` in the second slot. v0.9.3 deliberately disables the media-remaining decoder and keeps raw BLE packet diagnostics. This build is specifically to confirm whether the v0.9.1 media decoder caused the Wi-Fi/startup regression.
+
+## 4. Camera reconnect
+
+Power-cycle the BMPCC without rebooting the ESP. Confirm:
+
+- auto reconnect works
+- badge returns green
+- OSD returns to `STBY`
+- physical record switch still works after reconnect
+
+## 5. Diagnostic capture for media remaining
+
+Open the web diagnostics and note `lastIncoming` while:
+
+1. camera is idle
+2. camera starts recording
+3. media remaining changes on the camera display
+
+This raw packet snapshot is for finishing the remaining-record-time parser without guessing.

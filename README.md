@@ -1,18 +1,20 @@
-# FPVCineCam32 v0.9.2
+# FPVCineCam32 v0.9.3
 
-FPVCineCam32 bridges Betaflight MSP RC channels to a Blackmagic Pocket Cinema Camera 4K over BLE and sends camera status back to Betaflight Custom Messages for DJI OSD.
+FPVCineCam32 bridges Betaflight MSP RC channels to a Blackmagic Pocket Cinema Camera 4K over BLE, and sends camera status back to Betaflight Custom Messages for DJI OSD.
 
-## v0.9.2 changes
+This is a diagnostic rollback based on the known-good v0.9 runtime path. The v0.9.1 media-remaining parser is removed; raw incoming BLE packet diagnostics remain available. REC/STBY and MSP Custom Message behavior are otherwise kept intact.
 
-- Targeted Wi-Fi startup reliability fix; no intentional changes to the working REC/STBY or media-remaining decoder.
-- Starts the setup Wi-Fi AP **before** MSP and BLE camera initialization.
-- Retries AP startup internally up to three times.
-- If the AP still fails at boot, retries it every 5 seconds in the background instead of requiring repeated power cycles.
-- Disables Wi-Fi sleep while the development AP is running.
-- Delays BLE auto-reconnect until after the AP has had time to establish.
-- Version is now consistent everywhere: installer, manifest and controller webpage all say **v0.9.2**.
-- Custom Message selected slot remains `REC` / `STBY`.
-- Next Custom Message slot remains `LEFT <time>` when the BMPCC4K reports remaining record time.
+## v0.9.3 diagnostic rollback
+
+- Keeps the proven v0.8 TX16S -> Crossfire -> Betaflight -> MSP -> ESP32 -> BMPCC REC/STOP control path.
+- Removes timecode from the flight OSD.
+- Custom Message selected slot: `REC`, `STBY`, `CAM OFFLINE`, `CAM ENTER PIN`, or `CAM WAIT`.
+- Next Custom Message slot: reserved for media remaining. In this build it displays `MEDIA --` until the Pocket 4K media-remaining BLE payload is decoded.
+- REC/STOP state now updates immediately after a successful control write, so the OSD follows the physical switch without waiting for a camera echo.
+- Incoming Blackmagic CCU Transport Mode packets are still parsed and can correct the state when the camera reports them.
+- Adds `lastIncoming` raw BLE packet diagnostics to the web status JSON to help finish the media-remaining decoder.
+- Green/red Camera connected badge retained.
+- Development Wi-Fi remains on continuously for bench testing.
 
 ## Hardware profile
 
@@ -28,9 +30,9 @@ ESP32-C3 SuperMini UART is fixed:
 If the selected slot is Custom Message 1, place both Custom Message 1 and Custom Message 2 in the Betaflight OSD layout.
 
 - Message 1 = camera record state
-- Message 2 = media remaining
+- Message 2 = media remaining (decoder intentionally disabled in v0.9.3)
 
-`Send OSD test` sends `REC TEST` and `MEDIA TEST`.
+`Send OSD test` sends `REC TEST` and `MEDIA TEST` to prove both elements are visible.
 
 ## Browser flasher
 

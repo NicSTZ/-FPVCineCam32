@@ -415,63 +415,11 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
             const uint8_t* value = &data[p + 8];
 
             // Media / Transport Mode. First int8 value is mode:
-            // 0 Preview, 1 Play, 2 Record. Byte 2 is the transport flags;
-            // bits 0x20 / 0x40 / 0x10 indicate active storage slots 1 / 2 / 3.
+            // 0 Preview, 1 Play, 2 Record.
             if (category == 10 && parameter == 1 && dataType == 1 && operation == 0 && valueLen >= 1) {
                 const uint8_t mode = value[0];
                 camState.recording = (mode == 2);
                 camState.status = camState.recording ? "REC" : "BMD READY";
-                if (valueLen >= 3) {
-                    const uint8_t flags = value[2];
-                    if (flags & 0x20) camState.activeMediaSlot = 0;
-                    else if (flags & 0x40) camState.activeMediaSlot = 1;
-                    else if (flags & 0x10) camState.activeMediaSlot = 2;
-                }
-            }
-
-            // Status / Remaining Record Time. Blackmagic sends one signed int16
-            // per media slot, little-endian. Positive values are seconds; negative
-            // values are minutes. INT16_MIN means the time exceeds the field range.
-            // This status packet is used by Blackmagic's own sample-derived tools and
-            // is present on Pocket 4K firmware 8.1.
-            if (category == 9 && parameter == 2 && dataType == 2 && operation == 2 && valueLen >= 2) {
-                const size_t slotCount = valueLen / 2;
-                int chosen = camState.activeMediaSlot;
-                if (chosen < 0 || (size_t)chosen >= slotCount) chosen = 0;
-
-                auto readSlotSeconds = [&](size_t idx, bool& overflow) -> uint32_t {
-                    const uint16_t raw16 = (uint16_t)value[idx*2] | ((uint16_t)value[idx*2+1] << 8);
-                    const int16_t t = (int16_t)raw16;
-                    overflow = false;
-                    if (t == INT16_MIN) { overflow = true; return 65535UL * 60UL; }
-                    if (t < 0) return (uint32_t)(-((int32_t)t)) * 60UL;
-                    return (uint32_t)t;
-                };
-
-                bool overflow = false;
-                uint32_t seconds = readSlotSeconds((size_t)chosen, overflow);
-
-                // If we do not yet know the active slot and slot 1 reports zero/full,
-                // prefer the first slot carrying a non-zero remaining-time value.
-                if (camState.activeMediaSlot < 0 && seconds == 0 && slotCount > 1) {
-                    for (size_t i=1; i<slotCount; ++i) {
-                        bool o = false;
-                        uint32_t candidate = readSlotSeconds(i, o);
-                        if (candidate > 0) { seconds = candidate; overflow = o; chosen = (int)i; break; }
-                    }
-                }
-
-                camState.activeMediaSlot = chosen;
-                if (seconds == 0) {
-                    camState.mediaRemaining = "FULL";
-                } else {
-                    const uint32_t hours = seconds / 3600UL;
-                    const uint32_t mins = (seconds % 3600UL) / 60UL;
-                    char label[20];
-                    if (hours > 0) snprintf(label, sizeof(label), "%luh%02lum%s", (unsigned long)hours, (unsigned long)mins, overflow ? "+" : "");
-                    else snprintf(label, sizeof(label), "%lum%s", (unsigned long)((seconds + 59UL) / 60UL), overflow ? "+" : "");
-                    camState.mediaRemaining = label;
-                }
             }
         }
 
