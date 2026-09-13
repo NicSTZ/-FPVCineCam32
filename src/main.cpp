@@ -38,11 +38,10 @@ static String osdStatusText() {
     return "CAM WAIT";
 }
 
-static String osdMediaText() {
+static String osdIsoText() {
     const CameraState& c = camera.state();
-    if (!c.connected) return "MEDIA --";
-    if (c.mediaRemaining.length() && c.mediaRemaining != "--") return "LEFT " + c.mediaRemaining;
-    return "MEDIA --";
+    if (!c.connected || c.iso <= 0) return "ISO --";
+    return "ISO " + String(c.iso);
 }
 
 void setup() {
@@ -98,10 +97,8 @@ void loop() {
     if(now-lastOsdUpdate>=500){
         lastOsdUpdate=now;
         msp.setCustomText(settings.osdSlot, osdStatusText());
-        // v0.9 uses the next Custom Message slot for media remaining. Until we
-        // have decoded the Pocket 4K's media-remaining BLE payload this cleanly
-        // shows MEDIA -- instead of bogus timecode data.
-        if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
+        // Stable v0.9 path: use the next Custom Message slot for camera ISO.
+        if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdIsoText());
     }
 
     // Development build: Wi-Fi stays on so live MSP channels/diagnostics can be observed.

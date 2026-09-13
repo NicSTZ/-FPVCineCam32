@@ -21,8 +21,6 @@ public:
     void setSavedTarget(const String& address, uint8_t type) { savedAddress = address; savedAddressType = type; }
     String currentAddress() const { return connectedAddress; }
     uint8_t currentAddressType() const { return connectedAddressType; }
-    String rawBleDiagnosticsJson() const;
-    String bleSubscriptionDiagnosticsJson() const;
 
 private:
     CameraState camState;
@@ -46,45 +44,10 @@ private:
 
     bool serviceReady = false;
     bool subscriptionsReady = false;
-
-    // v0.9.8 subscription diagnostics. These are observation-only and do not
-    // change the known-good v0.9 connection/startup path.
-    bool outgoingFound = false;
-    bool incomingFound = false;
-    bool timecodeFound = false;
-    bool statusFound = false;
-    bool protocolFound = false;
-    bool incomingCanNotify = false;
-    bool timecodeCanNotify = false;
-    bool statusCanNotify = false;
-    bool incomingSubscribeAttempted = false;
-    bool timecodeSubscribeAttempted = false;
-    bool statusSubscribeAttempted = false;
-    bool incomingSubscribeOk = false;
-    bool timecodeSubscribeOk = false;
-    bool statusSubscribeOk = false;
-    volatile uint32_t incomingNotifyCount = 0;
-    volatile uint32_t timecodeNotifyCount = 0;
-    volatile uint32_t statusNotifyCount = 0;
     bool reconnectWanted = false;
     uint32_t nextReconnectMs = 0;
     volatile bool postAuthRequested = false;
     uint32_t postAuthAtMs = 0;
-
-    // v0.9.8 diagnostic capture: fixed-size raw BLE ring buffer.
-    // The BLE callback only memcpy()s bytes here; no String allocation or decoding.
-    static constexpr uint8_t RAW_RING_SLOTS = 12;
-    static constexpr uint8_t RAW_MAX_BYTES = 40;
-    struct RawBlePacket {
-        uint32_t seq;
-        uint8_t len;
-        uint8_t data[RAW_MAX_BYTES];
-    };
-    volatile uint32_t rawSeq = 0;
-    volatile uint8_t rawWriteIndex = 0;
-    RawBlePacket rawRing[RAW_RING_SLOTS] = {};
-
-    void captureRawIncoming(const uint8_t* data, size_t len);
 
     class ClientCallbacks : public NimBLEClientCallbacks {
     public:

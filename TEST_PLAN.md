@@ -1,14 +1,10 @@
-# FPVCineCam32 v0.9.8 test plan
+# FPVCineCam32 v0.9 ISO test plan
 
-1. Flash v0.9.8 and power the ESP normally.
-2. Confirm `FPVCineCam32-XXXX` Wi-Fi appears and stays up.
-3. Connect the BMPCC4K as usual.
-4. Open `192.168.4.1` and scroll to **Blackmagic BLE subscription status**.
-5. Send a screenshot showing:
-   - Incoming Control: found / canNotify / subscribe result / notification count
-   - Timecode line
-   - Camera Status line
-6. Do STBY -> REC -> STOP and press Refresh.
-7. If raw Incoming packets appear, include the Raw Blackmagic BLE section in the screenshot.
+1. Flash the build and confirm `FPVCineCam32-XXXX` Wi-Fi appears and remains stable.
+2. Open `192.168.4.1`; header should say `v0.9 ISO`.
+3. Confirm the BMPCC reconnects normally.
+4. Confirm Custom Message 1 still switches `STBY` / `REC`.
+5. Custom Message 2 should show `ISO <value>` if the BMPCC sends the ISO CCU update; otherwise it will remain `ISO --`.
+6. Change ISO on the BMPCC (for example 400 -> 800) and see whether Message 2 updates.
 
-Do not change codec or other camera settings until the subscription result is known.
+This is deliberately a lean placeholder build. It does not include media-left decoding or the later diagnostic additions.

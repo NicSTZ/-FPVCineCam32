@@ -70,11 +70,6 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     serviceReady = false;
     subscriptionsReady = false;
     outgoing = incoming = timecode = statusChar = modelChar = protocolChar = nullptr;
-    outgoingFound = incomingFound = timecodeFound = statusFound = protocolFound = false;
-    incomingCanNotify = timecodeCanNotify = statusCanNotify = false;
-    incomingSubscribeAttempted = timecodeSubscribeAttempted = statusSubscribeAttempted = false;
-    incomingSubscribeOk = timecodeSubscribeOk = statusSubscribeOk = false;
-    incomingNotifyCount = timecodeNotifyCount = statusNotifyCount = 0;
     passkeyPending = false;
     pendingConnHandle = BLE_HS_CONN_HANDLE_NONE;
     camState.connected = false;
@@ -117,15 +112,6 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     timecode = svc->getCharacteristic(TIMECODE_UUID);
     statusChar = svc->getCharacteristic(STATUS_UUID);
     protocolChar = svc->getCharacteristic(PROTOCOL_UUID);
-
-    outgoingFound = outgoing != nullptr;
-    incomingFound = incoming != nullptr;
-    timecodeFound = timecode != nullptr;
-    statusFound = statusChar != nullptr;
-    protocolFound = protocolChar != nullptr;
-    incomingCanNotify = incoming && incoming->canNotify();
-    timecodeCanNotify = timecode && timecode->canNotify();
-    statusCanNotify = statusChar && statusChar->canNotify();
 
     if (auto* info = client->getService(DEVICE_INFO)) {
         modelChar = info->getCharacteristic(MODEL_UUID);
@@ -218,34 +204,10 @@ bool BlackmagicCamera::triggerPairingByEncryptedWrite() {
 
 bool BlackmagicCamera::discoverAndSubscribe() {
     if (!client || !client->isConnected() || !serviceReady) return false;
-
-    // Record each characteristic/subscription independently so the web page can
-    // tell us exactly where Blackmagic notification setup succeeds or fails.
-    incomingFound = incoming != nullptr;
-    timecodeFound = timecode != nullptr;
-    statusFound = statusChar != nullptr;
-    outgoingFound = outgoing != nullptr;
-    protocolFound = protocolChar != nullptr;
-
-    incomingCanNotify = incoming && incoming->canNotify();
-    timecodeCanNotify = timecode && timecode->canNotify();
-    statusCanNotify = statusChar && statusChar->canNotify();
-
-    incomingSubscribeAttempted = incomingCanNotify;
-    timecodeSubscribeAttempted = timecodeCanNotify;
-    statusSubscribeAttempted = statusCanNotify;
-
-    incomingSubscribeOk = incomingCanNotify ? incoming->subscribe(true, incomingNotify) : false;
-    timecodeSubscribeOk = timecodeCanNotify ? timecode->subscribe(true, timecodeNotify) : false;
-    statusSubscribeOk = statusCanNotify ? statusChar->subscribe(true, statusNotify) : false;
-
-    // Preserve the original v0.9 behavior: missing/non-notify optional chars did
-    // not themselves fail the whole setup; an attempted subscription that fails does.
     bool ok = true;
-    if (incomingCanNotify) ok &= incomingSubscribeOk;
-    if (timecodeCanNotify) ok &= timecodeSubscribeOk;
-    if (statusCanNotify) ok &= statusSubscribeOk;
-
+    if (incoming && incoming->canNotify()) ok &= incoming->subscribe(true, incomingNotify);
+    if (timecode && timecode->canNotify()) ok &= timecode->subscribe(true, timecodeNotify);
+    if (statusChar && statusChar->canNotify()) ok &= statusChar->subscribe(true, statusNotify);
     subscriptionsReady = ok;
     camState.controlReady = ok && outgoing != nullptr;
     if (ok) {
@@ -402,77 +364,13 @@ void BlackmagicCamera::forgetPairing() {
 }
 
 void BlackmagicCamera::incomingNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
-    if (!instance) return;
-    instance->incomingNotifyCount++;
-    instance->captureRawIncoming(data, len);
-    instance->parseIncoming(data, len);
+    if (instance) instance->parseIncoming(data, len);
 }
 void BlackmagicCamera::timecodeNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
-    if (!instance) return;
-    instance->timecodeNotifyCount++;
-    instance->parseTimecode(data, len);
+    if (instance) instance->parseTimecode(data, len);
 }
 void BlackmagicCamera::statusNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
-    if (!instance) return;
-    instance->statusNotifyCount++;
-    instance->parseStatus(data, len);
-}
-
-void BlackmagicCamera::captureRawIncoming(const uint8_t* data, size_t len) {
-    if (!data || !len) return;
-    const uint8_t idx = rawWriteIndex;
-    RawBlePacket& pkt = rawRing[idx];
-    const size_t copyLen = len > RAW_MAX_BYTES ? RAW_MAX_BYTES : len;
-    pkt.seq = ++rawSeq;
-    pkt.len = (uint8_t)copyLen;
-    memcpy(pkt.data, data, copyLen);
-    rawWriteIndex = (uint8_t)((idx + 1) % RAW_RING_SLOTS);
-}
-
-String BlackmagicCamera::rawBleDiagnosticsJson() const {
-    String out = "[";
-    const uint8_t end = rawWriteIndex;
-    bool first = true;
-    // Oldest -> newest. Slots with seq==0 have never been written.
-    for (uint8_t n = 0; n < RAW_RING_SLOTS; n++) {
-        const uint8_t idx = (uint8_t)((end + n) % RAW_RING_SLOTS);
-        const RawBlePacket pkt = rawRing[idx];
-        if (pkt.seq == 0) continue;
-        if (!first) out += ',';
-        first = false;
-        out += "{\"seq\":" + String(pkt.seq) + ",\"len\":" + String(pkt.len) + ",\"data\":\"";
-        for (uint8_t i = 0; i < pkt.len; i++) {
-            char b[4];
-            snprintf(b, sizeof(b), "%02X", (unsigned)pkt.data[i]);
-            if (i) out += ' ';
-            out += b;
-        }
-        out += "\"}";
-    }
-    out += "]";
-    return out;
-}
-
-
-String BlackmagicCamera::bleSubscriptionDiagnosticsJson() const {
-    String out = "{";
-    out += "\"outgoingFound\":" + String(outgoingFound ? "true" : "false") + ",";
-    out += "\"incomingFound\":" + String(incomingFound ? "true" : "false") + ",";
-    out += "\"incomingCanNotify\":" + String(incomingCanNotify ? "true" : "false") + ",";
-    out += "\"incomingSubscribeAttempted\":" + String(incomingSubscribeAttempted ? "true" : "false") + ",";
-    out += "\"incomingSubscribeOk\":" + String(incomingSubscribeOk ? "true" : "false") + ",";
-    out += "\"incomingNotifications\":" + String((uint32_t)incomingNotifyCount) + ",";
-    out += "\"timecodeFound\":" + String(timecodeFound ? "true" : "false") + ",";
-    out += "\"timecodeCanNotify\":" + String(timecodeCanNotify ? "true" : "false") + ",";
-    out += "\"timecodeSubscribeOk\":" + String(timecodeSubscribeOk ? "true" : "false") + ",";
-    out += "\"timecodeNotifications\":" + String((uint32_t)timecodeNotifyCount) + ",";
-    out += "\"statusFound\":" + String(statusFound ? "true" : "false") + ",";
-    out += "\"statusCanNotify\":" + String(statusCanNotify ? "true" : "false") + ",";
-    out += "\"statusSubscribeOk\":" + String(statusSubscribeOk ? "true" : "false") + ",";
-    out += "\"statusNotifications\":" + String((uint32_t)statusNotifyCount) + ",";
-    out += "\"protocolFound\":" + String(protocolFound ? "true" : "false");
-    out += "}";
-    return out;
+    if (instance) instance->parseStatus(data, len);
 }
 
 void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
@@ -522,6 +420,16 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
                 const uint8_t mode = value[0];
                 camState.recording = (mode == 2);
                 camState.status = camState.recording ? "REC" : "BMD READY";
+            }
+
+            // Video / ISO. Blackmagic CCU parameter 1.14 is an int32 ISO value.
+            // Keep this deliberately small and on the proven v0.9 parser path.
+            if (category == 1 && parameter == 14 && operation == 0 && valueLen >= 4) {
+                const uint32_t isoRaw = (uint32_t)value[0] |
+                                        ((uint32_t)value[1] << 8) |
+                                        ((uint32_t)value[2] << 16) |
+                                        ((uint32_t)value[3] << 24);
+                if (isoRaw > 0 && isoRaw <= 25600) camState.iso = (int)isoRaw;
             }
         }
 
