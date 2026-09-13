@@ -86,7 +86,7 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     }
 
     NimBLEAddress addr(address.c_str(), addressType);
-    if (!client->connect(addr, true, false, true)) {
+    if (!client->connect(addr, true, false, false)) {
         camState.status = "BLE CONNECT FAIL";
         return;
     }
