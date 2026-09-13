@@ -1,8 +1,8 @@
-# FPVCineCam32 v0.9 test plan
+# FPVCineCam32 v0.9.1 test plan
 
 ## 1. Regression
 
-- Flash v0.9.
+- Flash v0.9.1.
 - Confirm the remembered BMPCC 4K reconnects.
 - Confirm the camera badge turns green.
 - Confirm the TX16S record switch still starts/stops the camera.
@@ -28,7 +28,7 @@ Press **Send OSD test**. Expected:
 - first slot: `REC TEST`
 - second slot: `MEDIA TEST`
 
-Normal operation currently shows `MEDIA --` in the second slot. v0.9 deliberately does not invent a remaining-time value; it captures incoming BLE packet diagnostics so the Pocket 4K media payload can be decoded correctly next.
+Normal operation currently shows `MEDIA --` in the second slot. v0.9.1 deliberately does not invent a remaining-time value; it captures incoming BLE packet diagnostics so the Pocket 4K media payload can be decoded correctly next.
 
 ## 4. Camera reconnect
 
@@ -48,3 +48,11 @@ Open the web diagnostics and note `lastIncoming` while:
 3. media remaining changes on the camera display
 
 This raw packet snapshot is for finishing the remaining-record-time parser without guessing.
+
+
+### Media remaining test
+1. Place Custom Message 1 and Custom Message 2 in the active Betaflight OSD profile.
+2. Confirm message 1 changes STBY -> REC -> STBY.
+3. Confirm message 2 changes from MEDIA -- to LEFT Xm or LEFT XhYYm after the camera sends its initial status payload.
+4. Change codec/quality or insert/remove media and confirm remaining time updates.
+5. If it stays MEDIA --, copy the Diagnostics `lastIncoming` value before and after changing recording/media state.
