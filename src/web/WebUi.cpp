@@ -8,7 +8,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;ma
 h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
 button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}.statusBadge{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;font-weight:600;margin-bottom:8px}.statusBadge::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor}.statusOnline{color:#6ee787;background:#17351f}.statusOffline{color:#ff6b6b;background:#3a1b1b}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
-<h1>FPVCineCam32 <small>v0.8</small></h1><div class=sub>Blackmagic + Betaflight MSP development build</div>
+<h1>FPVCineCam32 <small>v0.9.4</small></h1><div class=sub>Blackmagic + Betaflight MSP development build</div>
 
 <div class=card><h3>Blackmagic Pocket Cinema Camera</h3>
 <div id=camBadge class="statusBadge statusOffline">Camera disconnected</div><div id=camSummary class=muted>Loading...</div>
@@ -33,7 +33,7 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <p class=muted id=mspStats></p>
 <label>OSD Custom Message slot <select id=slot><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
 <button onclick=saveOsd()>Save OSD slot</button><button onclick=testosd()>Send OSD test</button>
-<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p class=muted>v0.9 sends REC/STBY to the selected Custom Message slot. The next Custom Message slot is reserved for media remaining (currently shown as MEDIA -- while we finish decoding the Pocket 4K media payload).</p>
+<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p class=muted>v0.9.4 sends REC/STBY to the selected Custom Message slot and remaining record time to the next Custom Message slot.</p>
 </div>
 
 <div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button></div>
@@ -46,14 +46,15 @@ function cameraLine(c){
   const link=c.connected?'Connected':'Offline';
   const ready=c.controlReady?'Control ready':'Control not ready';
   const rec=c.recording?'RECORDING':'Standby';
-  return `${link} | ${ready} | ${rec} | ${c.timecode}`;
+  const media=c.mediaRemaining&&c.mediaRemaining!='--'?` | Media ${c.mediaRemaining}`:'';
+  return `${link} | ${ready} | ${rec}${media}`;
 }
 function osdPreview(c){
-  if(!c.connected) return 'BMD OFFLINE';
-  if(c.waitingPin) return 'BMD ENTER PIN';
-  if(c.recording) return `REC ${c.timecode}`;
-  if(c.ready || c.paired) return `BMD STBY ${c.timecode}`;
-  return c.status || 'BMD';
+  if(!c.connected) return 'CAM OFFLINE | MEDIA --';
+  if(c.waitingPin) return 'CAM ENTER PIN | MEDIA --';
+  const state=c.recording?'REC':'STBY';
+  const media=c.mediaRemaining&&c.mediaRemaining!='--'?`LEFT ${c.mediaRemaining}`:'MEDIA --';
+  return `${state} | ${media}`;
 }
 function drawChannels(s){
   const box=el('channels');box.innerHTML='';

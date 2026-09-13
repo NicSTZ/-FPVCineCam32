@@ -1,50 +1,11 @@
-# FPVCineCam32 v0.9 test plan
+# FPVCineCam32 v0.9.4 test
 
-## 1. Regression
-
-- Flash v0.9.
-- Confirm the remembered BMPCC 4K reconnects.
-- Confirm the camera badge turns green.
-- Confirm the TX16S record switch still starts/stops the camera.
-
-## 2. Record-state OSD
-
-Place the selected Custom Message slot in the Betaflight OSD.
-
-Expected:
-
-- Camera disconnected: `CAM OFFLINE`
-- Camera connected and idle: `STBY`
-- Camera recording: `REC`
-
-Flip REC/STOP repeatedly. The message should change immediately with the camera command.
-
-## 3. Second OSD message
-
-Place the next Custom Message slot in Betaflight OSD.
-
-Press **Send OSD test**. Expected:
-
-- first slot: `REC TEST`
-- second slot: `MEDIA TEST`
-
-Normal operation currently shows `MEDIA --` in the second slot. v0.9 deliberately does not invent a remaining-time value; it captures incoming BLE packet diagnostics so the Pocket 4K media payload can be decoded correctly next.
-
-## 4. Camera reconnect
-
-Power-cycle the BMPCC without rebooting the ESP. Confirm:
-
-- auto reconnect works
-- badge returns green
-- OSD returns to `STBY`
-- physical record switch still works after reconnect
-
-## 5. Diagnostic capture for media remaining
-
-Open the web diagnostics and note `lastIncoming` while:
-
-1. camera is idle
-2. camera starts recording
-3. media remaining changes on the camera display
-
-This raw packet snapshot is for finishing the remaining-record-time parser without guessing.
+1. Flash v0.9.4.
+2. Power normally and verify `FPVCineCam32-XXXX` appears.
+3. Connect to the AP and open `192.168.4.1`.
+4. Confirm the page says v0.9.4.
+5. Confirm camera reconnects and REC/STBY still follows the RC switch.
+6. Confirm Custom Message 1 switches REC/STBY.
+7. Check Custom Message 2 for `LEFT ...`.
+8. If media still shows `MEDIA --`, copy the Diagnostics `lastIncoming` value before changing anything else.
+9. Power-cycle camera once and verify camera reconnect, REC/STBY, and media text recover.
