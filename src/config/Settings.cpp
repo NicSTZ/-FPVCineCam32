@@ -14,7 +14,9 @@ AppSettings SettingsStore::load() {
     s.cameraAddress = prefs.getString("camaddr", "");
     s.cameraAddressType = prefs.getUChar("camtype", 0);
     s.autoConnect = prefs.getBool("autoconn", true);
-    s.wifiAutoOff = prefs.getBool("wifioff", false);
+    uint8_t sys = prefs.getUChar("camsys", 0);
+    if (sys > (uint8_t)CameraSystem::DjiAction) sys = 0;
+    s.cameraSystem = (CameraSystem)sys;
     return s;
 }
 
@@ -29,7 +31,7 @@ void SettingsStore::save(const AppSettings& s) {
     prefs.putString("camaddr", s.cameraAddress);
     prefs.putUChar("camtype", s.cameraAddressType);
     prefs.putBool("autoconn", s.autoConnect);
-    prefs.putBool("wifioff", s.wifiAutoOff);
+    prefs.putUChar("camsys", (uint8_t)s.cameraSystem);
 }
 
 void SettingsStore::clearCamera() {

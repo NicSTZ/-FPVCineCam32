@@ -1,28 +1,14 @@
 {
-  "name": "FPVCineCam32",
-  "version": "0.10.0",
-  "new_install_prompt_erase": true,
-  "builds": [
-    {
-      "chipFamily": "ESP32-C3",
-      "parts": [
-        {
-          "path": "firmware/bootloader.bin",
-          "offset": 0
-        },
-        {
-          "path": "firmware/partitions.bin",
-          "offset": 32768
-        },
-        {
-          "path": "firmware/boot_app0.bin",
-          "offset": 57344
-        },
-        {
-          "path": "firmware/firmware.bin",
-          "offset": 65536
-        }
-      ]
-    }
-  ]
+  "name": "FPVCineCam32 v0.11 DEV",
+  "version": "0.11-dev",
+  "new_install_prompt_erase": false,
+  "builds": [{
+    "chipFamily": "ESP32-C3",
+    "parts": [
+      {"path":"firmware/bootloader.bin","offset":0},
+      {"path":"firmware/partitions.bin","offset":32768},
+      {"path":"firmware/boot_app0.bin","offset":57344},
+      {"path":"firmware/firmware.bin","offset":65536}
+    ]
+  }]
 }

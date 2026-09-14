@@ -6,6 +6,8 @@
 class BlackmagicCamera : public ICameraBackend {
 public:
     BlackmagicCamera();
+    const char* systemKey() const override { return "blackmagic"; }
+    const char* systemName() const override { return "Blackmagic"; }
     void begin() override;
     void loop() override;
     bool startScan(String& jsonOut) override;
@@ -18,7 +20,7 @@ public:
     bool waitingForPasskey() const override { return passkeyPending; }
     const CameraState& state() const override { return camState; }
 
-    void setSavedTarget(const String& address, uint8_t type) { savedAddress = address; savedAddressType = type; }
+    void setSavedTarget(const String& address, uint8_t type) override { savedAddress = address; savedAddressType = type; }
     String currentAddress() const { return connectedAddress; }
     uint8_t currentAddressType() const { return connectedAddressType; }
 
@@ -48,6 +50,9 @@ private:
     uint32_t nextReconnectMs = 0;
     volatile bool postAuthRequested = false;
     uint32_t postAuthAtMs = 0;
+    uint32_t lastDiagSnapshotMs = 0;
+    uint32_t incomingNotifyCount = 0;
+    uint32_t statusNotifyCount = 0;
 
     class ClientCallbacks : public NimBLEClientCallbacks {
     public:
@@ -69,6 +74,7 @@ private:
     void parseIncoming(const uint8_t* data, size_t len);
     void parseTimecode(const uint8_t* data, size_t len);
     void parseStatus(const uint8_t* data, size_t len);
+    static String formatRemainingSeconds(uint32_t seconds);
     static void incomingNotify(NimBLERemoteCharacteristic*, uint8_t*, size_t, bool);
     static void timecodeNotify(NimBLERemoteCharacteristic*, uint8_t*, size_t, bool);
     static void statusNotify(NimBLERemoteCharacteristic*, uint8_t*, size_t, bool);

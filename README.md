@@ -1,56 +1,43 @@
-# FPVCineCam32 v0.10
+# FPVCineCam32 v0.11 DEV - multi-camera / coexistence branch
 
-FPVCineCam32 bridges Betaflight MSP RC channels to a Blackmagic Pocket Cinema Camera 4K over BLE, and sends camera status back to Betaflight Custom Messages for DJI OSD.
+**v0.10 remains the known-good stable flight build.** v0.11 is intended for the second ESP32-C3 development board.
 
-## v0.10 changes
+## What changed
 
-- Keeps the proven v0.8 TX16S -> Crossfire -> Betaflight -> MSP -> ESP32 -> BMPCC REC/STOP control path.
-- Removes timecode from the flight OSD.
-- Custom Message selected slot: `REC`, `STBY`, `CAM OFFLINE`, `CAM ENTER PIN`, or `CAM WAIT`.
-- Next Custom Message slot: reserved for media remaining. In this build it displays `MEDIA --` until the Pocket 4K media-remaining BLE payload is decoded.
-- REC/STOP state now updates immediately after a successful control write, so the OSD follows the physical switch without waiting for a camera echo.
-- Incoming Blackmagic CCU Transport Mode packets are still parsed and can correct the state when the camera reports them.
-- Adds `lastIncoming` raw BLE packet diagnostics to the web status JSON to help finish the media-remaining decoder.
-- Green/red Camera connected badge retained.
-- Development Wi-Fi remains on continuously for bench testing.
+- Camera-first startup: a saved camera gets a clean BLE reconnect window before setup Wi-Fi starts.
+- Safe Wi-Fi fallback: setup AP still appears after 4 seconds if the camera is off or fails to reconnect; unconfigured boards expose Wi-Fi after ~600 ms.
+- Setup Wi-Fi auto-off remains 90 seconds and returns every reboot.
+- Web polling reduced to 2 seconds; MSP OSD text update reduced to 750 ms.
+- Blackmagic timecode subscription is disabled because we do not use it; this removes high-rate BLE traffic while setup Wi-Fi is active.
+- Explicit camera scans are short and only run on demand; saved cameras reconnect directly without a scan.
+- Camera backend selector: Blackmagic / GoPro / DJI Action. Saving a new backend clears the old camera address and restarts into that backend.
+- Blackmagic proven REC/STOP path retained. Incoming control subscription now supports notification **or indication** and no longer gates the working outgoing control path.
+- Blackmagic media-left decoder is reintroduced conservatively. Unknown data remains `MEDIA --` rather than inventing a value.
+- GoPro experimental backend uses official Open GoPro BLE discovery (FEA6), pairing/bonding, GP-0072 command writes and GP-0073 responses. REC/STOP uses Set Shutter packets.
+- DJI Action experimental backend discovers official R SDK GATT transport (FFF0 / FFF4 / FFF5). Full DJI R SDK authentication/frame protocol is **not yet enabled**, so DJI REC/STOP is intentionally blocked rather than faked.
 
-## Hardware profile
+## Current feature status
 
-ESP32-C3 SuperMini UART is fixed:
+| Feature | Blackmagic | GoPro | DJI Action |
+|---|---|---|---|
+| Scan/connect | Proven | Experimental | Experimental transport |
+| Persistent reconnect | Proven | Experimental | Experimental |
+| TX16S REC/STOP | Proven | Experimental | Not yet - R SDK auth required |
+| DJI OSD REC/STBY | Proven | Optimistic after successful write | Not yet |
+| Media remaining | Experimental | Not implemented | Not implemented |
+
+## Wiring
+
+ESP32-C3 SuperMini hardware profile remains fixed:
 
 - FC TX -> GPIO6 (ESP RX)
 - FC RX -> GPIO7 (ESP TX)
-- FC GND -> ESP GND
-- MSP 115200
+- GND -> GND
+- 5V -> 5V
+- Betaflight UART: MSP 115200
 
-## OSD setup
+Wi-Fi: `FPVCineCam32-XXXX` / password `fpvcinecam32` / `192.168.4.1`
 
-If the selected slot is Custom Message 1, place both Custom Message 1 and Custom Message 2 in the Betaflight OSD layout.
+## Important
 
-- Message 1 = camera record state
-- Message 2 = media remaining (decoder work in progress in v0.10)
-
-`Send OSD test` sends `REC TEST` and `MEDIA TEST` to prove both elements are visible.
-
-## Browser flasher
-
-The GitHub Pages installer uses ESP Web Tools and the binaries produced by the existing GitHub Actions workflow.
-
-## License
-
-MIT. Blackmagic Design and Betaflight are trademarks/projects of their respective owners. This project is independent and uses publicly documented protocols.
-
-
-## v0.10 Wi-Fi / BLE coexistence cleanup
-
-Built directly from the proven v0.9 control baseline. Camera BLE pairing/control logic is unchanged.
-
-- Starts the Wi-Fi SoftAP before BLE initialization and gives it a short 750 ms head start.
-- Keeps the proven BMPCC BLE pairing, reconnect and REC/STOP code unchanged.
-- Slows configurator status polling from 500 ms to 1500 ms.
-- If no phone/computer joins the AP within 90 seconds of boot, Wi-Fi switches off automatically.
-- If a client is connected, Wi-Fi stays available for setup.
-- Adds a **Disable Wi-Fi now** button.
-- Wi-Fi always returns on the next reboot.
-- BLE, MSP and OSD continue after Wi-Fi shuts down.
-- No ISO/media telemetry experiments in this build.
+Do not replace the working v0.10 board with this until the new branch is proven. This branch intentionally contains experimental camera backends and media telemetry work.
