@@ -8,7 +8,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;ma
 h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
 button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}.statusBadge{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;font-weight:600;margin-bottom:8px}.statusBadge::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor}.statusOnline{color:#6ee787;background:#17351f}.statusOffline{color:#ff6b6b;background:#3a1b1b}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
-<h1>FPVCineCam32 <small>v0.10.8 ACTIVE SLOT TRACE</small></h1><div class=sub>Blackmagic + Betaflight MSP | active media slot diagnostic</div>
+<h1>FPVCineCam32 <small>v0.10.9 ACTIVE MEDIA</small></h1><div class=sub>Blackmagic + Betaflight MSP | active media remaining time</div>
 
 <div class=card><h3>Blackmagic Pocket Cinema Camera</h3>
 <div id=camBadge class="statusBadge statusOffline">Camera disconnected</div><div id=camSummary class=muted>Loading...</div>
@@ -41,7 +41,7 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <button onclick=wifiOff()>Disable Wi-Fi now</button>
 </div>
 
-<div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button><button onclick=clearCapture()>Clear 10:1 Trace</button><span id=clearMsg class=muted></span></div>
+<div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button></div>
 
 <script>
 const el=id=>document.getElementById(id);
@@ -98,10 +98,7 @@ async function saveMapping(){await api(`/api/saveMapping?ch=${el('ch').value}&th
 async function saveOsd(){await api('/api/saveOsd?slot='+el('slot').value);refresh()}
 async function testosd(){await api('/api/osdtest')}
 async function wifiOff(){try{await api('/api/wifioff');}catch(e){} }
-async function clearCapture(){
-  try{await api('/api/clearCapture');el('clearMsg').textContent=' 10:1 trace cleared';setTimeout(()=>el('clearMsg').textContent='',1200);setTimeout(refresh,300)}
-  catch(e){el('clearMsg').textContent=' Clear failed'}
-}
+
 setInterval(refresh,1500);refresh();
 </script></body></html>)HTML";
 
@@ -132,7 +129,7 @@ void WebUi::stopWifi(){
 String WebUi::statusJson(){
     const CameraState& c=cam.state();
     String j="{\"camera\":{";
-    j += "\"status\":\""+c.status+"\",\"model\":\""+c.model+"\",\"protocol\":\""+c.protocolVersion+"\",\"connected\":"+String(c.connected?"true":"false")+",\"paired\":"+String(c.paired?"true":"false")+",\"ready\":"+String(c.ready?"true":"false")+",\"controlReady\":"+String(c.controlReady?"true":"false")+",\"recording\":"+String(c.recording?"true":"false")+",\"timecode\":\""+c.timecode+"\",\"mediaRemaining\":\""+c.mediaRemaining+"\",\"incomingSubscription\":\""+c.incomingSubscription+"\",\"incomingPackets\":"+String(c.incomingPackets)+",\"lastIncoming\":\""+c.lastIncoming+"\",\"incomingCapture\":\""+c.incomingCapture+"\",\"waitingPin\":"+String(cam.waitingForPasskey()?"true":"false")+",\"lastCommand\":\""+c.lastCommand+"\",\"lastWrite\":\""+c.lastWrite+"\"},";
+    j += "\"status\":\""+c.status+"\",\"model\":\""+c.model+"\",\"protocol\":\""+c.protocolVersion+"\",\"connected\":"+String(c.connected?"true":"false")+",\"paired\":"+String(c.paired?"true":"false")+",\"ready\":"+String(c.ready?"true":"false")+",\"controlReady\":"+String(c.controlReady?"true":"false")+",\"recording\":"+String(c.recording?"true":"false")+",\"timecode\":\""+c.timecode+"\",\"mediaRemaining\":\""+c.mediaRemaining+"\",\"activeMediaSlot\":"+String(c.activeMediaSlot)+",\"mediaSlots\":[\""+c.mediaSlotRemaining[0]+"\",\""+c.mediaSlotRemaining[1]+"\",\""+c.mediaSlotRemaining[2]+"\"],\"incomingSubscription\":\""+c.incomingSubscription+"\",\"incomingPackets\":"+String(c.incomingPackets)+",\"lastIncoming\":\""+c.lastIncoming+"\",\"waitingPin\":"+String(cam.waitingForPasskey()?"true":"false")+",\"lastCommand\":\""+c.lastCommand+"\",\"lastWrite\":\""+c.lastWrite+"\"},";
     j += "\"msp\":{\"connected\":"+String(mspClient.connected()?"true":"false")+",\"rcFresh\":"+String(mspClient.rcFresh()?"true":"false")+",\"api\":\""+String(mspClient.apiMajor())+"."+String(mspClient.apiMinor())+"\",\"responseMs\":"+String(mspClient.lastResponseMs())+",\"responses\":"+String(mspClient.responses())+",\"timeouts\":"+String(mspClient.timeouts())+",\"invalidFrames\":"+String(mspClient.invalidFrames())+",\"channels\":[";
     const size_t count = min(mspClient.rcCount(), (size_t)16);
     for(size_t i=0;i<count;i++){ if(i)j+=','; j+=String(mspClient.rcValue(i)); }
@@ -145,7 +142,7 @@ void WebUi::routes(){
     server.on("/",HTTP_GET,[this](){server.send_P(200,"text/html",PAGE);});
     server.on("/api/wifioff",HTTP_GET,[this](){ server.send(200,"application/json","{\"ok\":true}"); stopRequested=true; stopAtMs=millis()+250; });
     server.on("/api/status",HTTP_GET,[this](){server.send(200,"application/json",statusJson());});
-    server.on("/api/clearCapture",HTTP_GET,[this](){cam.clearIncomingCapture();server.send(200,"application/json","{\"ok\":true}");});
+
     server.on("/api/scan",HTTP_GET,[this](){String j;cam.startScan(j);server.send(200,"application/json",j);});
     server.on("/api/connect",HTTP_GET,[this](){String a=server.arg("address");uint8_t t=(uint8_t)server.arg("type").toInt();bool ok=cam.connectTo(a,t);if(ok){s.cameraAddress=a;s.cameraAddressType=t;prefs.save(s);cam.setSavedTarget(a,t);}server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
     server.on("/api/pin",HTTP_GET,[this](){uint32_t p=(uint32_t)server.arg("value").toInt();bool ok=cam.submitPasskey(p);server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});

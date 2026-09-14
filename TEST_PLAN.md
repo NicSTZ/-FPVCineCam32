@@ -1,13 +1,12 @@
-# v0.10.8 ACTIVE SLOT TRACE — focused test
+# v0.10.9 ACTIVE MEDIA — focused regression
 
-1. Flash v0.10.8 and confirm the BMPCC reconnects normally.
-2. Confirm REC/STBY still works from the assigned RC switch.
-3. Confirm the goggles still show `MEDIA HH:MM:SS`.
-4. Open Diagnostics and confirm **Clear 10:1 Trace** is present.
-5. With both SD and SSD inserted, select **SD (slot 2)** on the camera.
-6. Press **Clear 10:1 Trace**.
-7. Change only the active recording medium **SD (slot 2) -> SSD (slot 3)**. Do not change codec/quality and do not record.
-8. Wait a few seconds, press Refresh, and screenshot `incomingCapture`.
-9. If useful, repeat **SSD (slot 3) -> SD (slot 2)** after clearing the trace again.
+Keep codec/quality unchanged during this test.
 
-We are looking only for the exact **10:1 value bytes** that change with active-media selection.
+1. Flash v0.10.9 and allow the saved Pocket 4K to reconnect.
+2. Confirm TX16S REC/STOP still works and REC/STBY still appears in the goggles.
+3. Select each installed medium on the camera and check the media OSD:
+   - slot 1: approximately `00:24:18`
+   - slot 2: approximately `00:23:37`
+   - slot 3 / USB: approximately `01:27:22`
+4. Remove all media. The OSD should become `MEDIA --`, not retain the previous value.
+5. Only if a slot is wrong, send one Diagnostics screenshot showing `activeMediaSlot`, `mediaSlots`, `mediaRemaining`, and `lastIncoming`.

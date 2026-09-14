@@ -17,7 +17,6 @@ public:
     bool submitPasskey(uint32_t pin) override;
     bool waitingForPasskey() const override { return passkeyPending; }
     const CameraState& state() const override { return camState; }
-    void clearIncomingCapture();
 
     void setSavedTarget(const String& address, uint8_t type) { savedAddress = address; savedAddressType = type; }
     String currentAddress() const { return connectedAddress; }
@@ -51,21 +50,14 @@ private:
     bool incomingSubscribeOk = false;
     volatile uint32_t incomingPacketCount = 0;
 
-    // Diagnostic-only focused trace for category 10 / parameter 1.
-    // The proven media-remaining decoder remains active; this ring buffer only records
-    // raw 10:1 value bytes so active-media selection can be mapped without changing control.
-    struct MediaProbeEntry {
-        bool used = false;
-        uint32_t sequence = 0;
-        uint32_t atMs = 0;
-        uint8_t valueLen = 0;
-        uint8_t value[16] = {0};
-    };
-    static constexpr size_t MEDIA_PROBE_SLOTS = 40;
-    MediaProbeEntry mediaProbe[MEDIA_PROBE_SLOTS];
-    uint32_t mediaProbeSequence = 0;
-    size_t mediaProbeWrite = 0;
-    volatile bool captureClearRequested = false;
+    // Pocket 4K media telemetry. Category 9 / parameter 2 carries one
+    // little-endian uint16 remaining-time value per media slot. Category 10 /
+    // parameter 1 carries the active-slot flags. Keep both decoders isolated
+    // from the proven outgoing REC/STOP path.
+    uint16_t mediaSeconds[3] = {0, 0, 0};
+    bool mediaSecondsSeen = false;
+    bool activeMediaSeen = false;
+
     bool reconnectWanted = false;
     uint32_t nextReconnectMs = 0;
     volatile bool postAuthRequested = false;
@@ -89,8 +81,7 @@ private:
     bool writeControlPacket(const uint8_t* data, size_t len);
     void readIdentity();
     void parseIncoming(const uint8_t* data, size_t len);
-    void captureMediaProbe(const uint8_t* command, size_t rawLen);
-    void rebuildMediaProbeSummary();
+    void refreshMediaRemaining();
     void parseTimecode(const uint8_t* data, size_t len);
     void parseStatus(const uint8_t* data, size_t len);
     static void incomingNotify(NimBLERemoteCharacteristic*, uint8_t*, size_t, bool);

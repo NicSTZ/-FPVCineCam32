@@ -81,14 +81,14 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     camState.lastWrite = "";
     camState.controlReady = false;
     camState.mediaRemaining = "--";
+    camState.activeMediaSlot = 0;
+    for (int i = 0; i < 3; i++) camState.mediaSlotRemaining[i] = "--";
+    mediaSeconds[0] = mediaSeconds[1] = mediaSeconds[2] = 0;
+    mediaSecondsSeen = false;
+    activeMediaSeen = false;
     camState.incomingSubscription = "none";
     camState.incomingPackets = 0;
     camState.lastIncoming = "";
-    camState.incomingCapture = "";
-    for (size_t i = 0; i < MEDIA_PROBE_SLOTS; i++) mediaProbe[i] = MediaProbeEntry{};
-    mediaProbeSequence = 0;
-    mediaProbeWrite = 0;
-    captureClearRequested = false;
     incomingSubscribeOk = false;
     incomingPacketCount = 0;
     postAuthRequested = false;
@@ -420,63 +420,44 @@ void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
 
 
 
-void BlackmagicCamera::clearIncomingCapture() {
-    // Request-only from web task; actual clear happens inside parseIncoming()
-    // in the BLE callback context to avoid racing packet writes.
-    captureClearRequested = true;
-}
+void BlackmagicCamera::refreshMediaRemaining() {
+    for (int i = 0; i < 3; i++) {
+        if (!mediaSecondsSeen || mediaSeconds[i] == 0) {
+            camState.mediaSlotRemaining[i] = "--";
+            continue;
+        }
+        const uint16_t seconds = mediaSeconds[i];
+        char remaining[12];
+        const unsigned hours = seconds / 3600u;
+        const unsigned minutes = (seconds % 3600u) / 60u;
+        const unsigned secs = seconds % 60u;
+        snprintf(remaining, sizeof(remaining), "%02u:%02u:%02u", hours, minutes, secs);
+        camState.mediaSlotRemaining[i] = remaining;
+    }
 
-void BlackmagicCamera::captureMediaProbe(const uint8_t* command, size_t rawLen) {
-    if (!command || rawLen < 8) return;
-    if (command[2] != 0 || command[4] != 10 || command[5] != 1) return;
+    // Do not guess when multiple media devices are installed. Once 10:1 has
+    // told us which slot is active, use only that slot's 9:2 remaining time.
+    if (activeMediaSeen) {
+        const int slot = camState.activeMediaSlot;
+        if (slot >= 1 && slot <= 3) camState.mediaRemaining = camState.mediaSlotRemaining[slot - 1];
+        else camState.mediaRemaining = "--";
+        return;
+    }
 
-    const uint8_t cmdLen = command[1];
-    if (cmdLen < 4) return;
-    const size_t valueLen = (size_t)cmdLen - 4u;
-    if (8u + valueLen > rawLen) return;
-
-    MediaProbeEntry& e = mediaProbe[mediaProbeWrite];
-    e = MediaProbeEntry{};
-    e.used = true;
-    e.sequence = ++mediaProbeSequence;
-    e.atMs = millis();
-    e.valueLen = (uint8_t)min(valueLen, sizeof(e.value));
-    memcpy(e.value, command + 8, e.valueLen);
-    mediaProbeWrite = (mediaProbeWrite + 1u) % MEDIA_PROBE_SLOTS;
-    rebuildMediaProbeSummary();
-}
-
-void BlackmagicCamera::rebuildMediaProbeSummary() {
-    String out;
-    const size_t start = (mediaProbeSequence > MEDIA_PROBE_SLOTS) ? mediaProbeWrite : 0;
-    for (size_t n = 0; n < MEDIA_PROBE_SLOTS; n++) {
-        const size_t i = (start + n) % MEDIA_PROBE_SLOTS;
-        const MediaProbeEntry& e = mediaProbe[i];
-        if (!e.used) continue;
-        if (out.length()) out += " | ";
-        char head[42];
-        snprintf(head, sizeof(head), "#%lu @%lums = ",
-                 (unsigned long)e.sequence, (unsigned long)e.atMs);
-        out += head;
-        for (uint8_t b = 0; b < e.valueLen; b++) {
-            char tmp[4];
-            snprintf(tmp, sizeof(tmp), b ? " %02X" : "%02X", (unsigned)e.value[b]);
-            out += tmp;
+    // Before the first 10:1 update arrives, a single populated 9:2 slot is
+    // unambiguous and preserves useful startup telemetry without guessing.
+    int onlySlot = 0;
+    int populated = 0;
+    for (int i = 0; i < 3; i++) {
+        if (mediaSeconds[i] != 0) {
+            onlySlot = i + 1;
+            populated++;
         }
     }
-    camState.incomingCapture = out;
+    camState.mediaRemaining = (populated == 1) ? camState.mediaSlotRemaining[onlySlot - 1] : "--";
 }
 
 void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
-    if (captureClearRequested) {
-        captureClearRequested = false;
-        for (size_t i = 0; i < MEDIA_PROBE_SLOTS; i++) mediaProbe[i] = MediaProbeEntry{};
-        mediaProbeSequence = 0;
-        mediaProbeWrite = 0;
-        camState.incomingCapture = "";
-        camState.lastIncoming = "";
-    }
-
     // Keep a short raw snapshot in the web diagnostics. This is invaluable when a
     // camera firmware revision sends a packet we have not decoded yet.
     String hex;
@@ -496,9 +477,6 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
         const size_t padded = (raw + 3u) & ~((size_t)3u);
         if (cmdLen < 4 || p + raw > len) break;
 
-        // Diagnostic only: capture exact raw value bytes for every 10:1 command.
-        captureMediaProbe(&data[p], raw);
-
         const uint8_t cmd = data[p + 2];
         if (cmd == 0) { // Change Configuration
             const uint8_t category = data[p + 4];
@@ -509,25 +487,37 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
             const uint8_t* value = &data[p + 8];
 
             // Pocket 4K firmware 8.1 category 9 / parameter 2 telemetry. Hardware
-            // capture proved the first two value bytes are a little-endian remaining
-            // record-duration counter in seconds. The camera republishes this when
-            // recording settings change and decrements it while recording.
+            // captures proved this is an array of little-endian uint16 remaining-time
+            // counters in seconds. Slots 1..3 map to byte pairs 0..1, 2..3 and 4..5.
             if (category == 9 && parameter == 2 && dataType == 2 && operation == 2 && valueLen >= 2) {
-                const uint16_t seconds = (uint16_t)value[0] | ((uint16_t)value[1] << 8);
-                char remaining[12];
-                const unsigned hours = seconds / 3600u;
-                const unsigned minutes = (seconds % 3600u) / 60u;
-                const unsigned secs = seconds % 60u;
-                snprintf(remaining, sizeof(remaining), "%02u:%02u:%02u", hours, minutes, secs);
-                camState.mediaRemaining = remaining;
+                const size_t slots = min((size_t)3, valueLen / 2u);
+                for (size_t i = 0; i < slots; i++) {
+                    mediaSeconds[i] = (uint16_t)value[i * 2u] | ((uint16_t)value[i * 2u + 1u] << 8);
+                }
+                for (size_t i = slots; i < 3; i++) mediaSeconds[i] = 0;
+                mediaSecondsSeen = true;
+                refreshMediaRemaining();
             }
 
-            // Media / Transport Mode. First int8 value is mode:
-            // 0 Preview, 1 Play, 2 Record.
+            // Media / Transport Mode. The documented flags byte uses bit 5 for
+            // disk 1 and bit 6 for disk 2. Pocket 4K hardware capture shows bit 4
+            // for its third media slot (USB), yielding 0x10 when slot 3 is active.
+            // A zero active-slot mask is treated as no active media and clears OSD.
             if (category == 10 && parameter == 1 && dataType == 1 && operation == 0 && valueLen >= 1) {
                 const uint8_t mode = value[0];
                 camState.recording = (mode == 2);
                 camState.status = camState.recording ? "REC" : "BMD READY";
+
+                if (valueLen >= 3) {
+                    const uint8_t flags = value[2];
+                    int slot = 0;
+                    if (flags & 0x20) slot = 1;
+                    else if (flags & 0x40) slot = 2;
+                    else if (flags & 0x10) slot = 3;
+                    camState.activeMediaSlot = slot;
+                    activeMediaSeen = true;
+                    refreshMediaRemaining();
+                }
             }
         }
 
