@@ -428,7 +428,7 @@ void BlackmagicCamera::clearIncomingCapture() {
 
 void BlackmagicCamera::captureMediaProbe(const uint8_t* command, size_t rawLen) {
     if (!command || rawLen < 8) return;
-    if (command[2] != 0 || command[4] != 9 || command[5] != 2) return;
+    if (command[2] != 0 || command[4] != 10 || command[5] != 1) return;
 
     const uint8_t cmdLen = command[1];
     if (cmdLen < 4) return;
@@ -496,7 +496,7 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
         const size_t padded = (raw + 3u) & ~((size_t)3u);
         if (cmdLen < 4 || p + raw > len) break;
 
-        // Diagnostic only: capture exact raw value bytes for every 9:2 command.
+        // Diagnostic only: capture exact raw value bytes for every 10:1 command.
         captureMediaProbe(&data[p], raw);
 
         const uint8_t cmd = data[p + 2];

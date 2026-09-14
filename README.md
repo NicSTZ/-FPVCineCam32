@@ -1,24 +1,19 @@
-# FPVCineCam32 v0.10.7 MEDIA SLOT TRACE
+# FPVCineCam32 v0.10.8 ACTIVE SLOT TRACE
 
-Diagnostic branch based directly on the known-good v0.10.6 MEDIA REMAINING build.
+Temporary diagnostic branch based directly on the proven v0.10.7 media-slot trace build.
 
 ## Purpose
-Map BMPCC media slot 1 / 2 / 3 behavior without disturbing the proven control path.
+Capture Blackmagic CCU category **10**, parameter **1** while switching the active recording medium. This is intended to identify the active-media flag/slot mapping without disturbing the already-proven media-remaining decoder.
 
-## Changes from v0.10.6
-- Restored the focused 40-entry CCU category 9 / parameter 2 trace from v0.10.5.
-- Added **Clear 9:2 Trace** to Diagnostics.
-- Existing category 9 / parameter 2 decoder remains active.
-- Media remaining is displayed as fixed-width `HH:MM:SS`.
-- OSD label changed from `LEFT <time>` to `MEDIA <time>`.
-- Version banner changed to v0.10.7 MEDIA SLOT TRACE.
+## Deliberate changes from v0.10.7
+- Focused 40-entry diagnostic trace changed from **9:2** to **10:1**.
+- Diagnostics button/text changed to **Clear 10:1 Trace**.
+- Version banner changed to **v0.10.8 ACTIVE SLOT TRACE**.
 
 ## Intentionally unchanged
-- BLE pairing / reconnect behavior
-- BMPCC REC / STBY control
-- MSP transport and RC polling
-- RC channel configuration
-- Wi-Fi behavior
-- GPIO hardware mapping
+- Existing 9:2 media-remaining decoder and `MEDIA HH:MM:SS` OSD.
+- BLE pairing/reconnect and BMPCC REC/STBY control.
+- MSP/RC handling and assigned channel behavior.
+- Wi-Fi behavior, GPIO6 RX / GPIO7 TX, baud rate and PlatformIO configuration.
 
-This is a temporary diagnostic build. v0.10.6 remains the known-good fallback.
+Known-good fallback remains **v0.10.6 MEDIA REMAINING**.

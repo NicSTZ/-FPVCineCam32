@@ -51,9 +51,9 @@ private:
     bool incomingSubscribeOk = false;
     volatile uint32_t incomingPacketCount = 0;
 
-    // Diagnostic-only focused trace for category 9 / parameter 2.
-    // The normal v0.10.6 decoder remains active; this ring buffer only records
-    // raw 9:2 value bytes so slot 1/2/3 behavior can be mapped without changing control.
+    // Diagnostic-only focused trace for category 10 / parameter 1.
+    // The proven media-remaining decoder remains active; this ring buffer only records
+    // raw 10:1 value bytes so active-media selection can be mapped without changing control.
     struct MediaProbeEntry {
         bool used = false;
         uint32_t sequence = 0;
