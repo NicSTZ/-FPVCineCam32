@@ -84,6 +84,11 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     camState.incomingSubscription = "none";
     camState.incomingPackets = 0;
     camState.lastIncoming = "";
+    camState.incomingCapture = "";
+    for (size_t i = 0; i < MEDIA_PROBE_SLOTS; i++) mediaProbe[i] = MediaProbeEntry{};
+    mediaProbeSequence = 0;
+    mediaProbeWrite = 0;
+    captureClearRequested = false;
     incomingSubscribeOk = false;
     incomingPacketCount = 0;
     postAuthRequested = false;
@@ -414,7 +419,64 @@ void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
 }
 
 
+
+void BlackmagicCamera::clearIncomingCapture() {
+    // Request-only from web task; actual clear happens inside parseIncoming()
+    // in the BLE callback context to avoid racing packet writes.
+    captureClearRequested = true;
+}
+
+void BlackmagicCamera::captureMediaProbe(const uint8_t* command, size_t rawLen) {
+    if (!command || rawLen < 8) return;
+    if (command[2] != 0 || command[4] != 9 || command[5] != 2) return;
+
+    const uint8_t cmdLen = command[1];
+    if (cmdLen < 4) return;
+    const size_t valueLen = (size_t)cmdLen - 4u;
+    if (8u + valueLen > rawLen) return;
+
+    MediaProbeEntry& e = mediaProbe[mediaProbeWrite];
+    e = MediaProbeEntry{};
+    e.used = true;
+    e.sequence = ++mediaProbeSequence;
+    e.atMs = millis();
+    e.valueLen = (uint8_t)min(valueLen, sizeof(e.value));
+    memcpy(e.value, command + 8, e.valueLen);
+    mediaProbeWrite = (mediaProbeWrite + 1u) % MEDIA_PROBE_SLOTS;
+    rebuildMediaProbeSummary();
+}
+
+void BlackmagicCamera::rebuildMediaProbeSummary() {
+    String out;
+    const size_t start = (mediaProbeSequence > MEDIA_PROBE_SLOTS) ? mediaProbeWrite : 0;
+    for (size_t n = 0; n < MEDIA_PROBE_SLOTS; n++) {
+        const size_t i = (start + n) % MEDIA_PROBE_SLOTS;
+        const MediaProbeEntry& e = mediaProbe[i];
+        if (!e.used) continue;
+        if (out.length()) out += " | ";
+        char head[42];
+        snprintf(head, sizeof(head), "#%lu @%lums = ",
+                 (unsigned long)e.sequence, (unsigned long)e.atMs);
+        out += head;
+        for (uint8_t b = 0; b < e.valueLen; b++) {
+            char tmp[4];
+            snprintf(tmp, sizeof(tmp), b ? " %02X" : "%02X", (unsigned)e.value[b]);
+            out += tmp;
+        }
+    }
+    camState.incomingCapture = out;
+}
+
 void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
+    if (captureClearRequested) {
+        captureClearRequested = false;
+        for (size_t i = 0; i < MEDIA_PROBE_SLOTS; i++) mediaProbe[i] = MediaProbeEntry{};
+        mediaProbeSequence = 0;
+        mediaProbeWrite = 0;
+        camState.incomingCapture = "";
+        camState.lastIncoming = "";
+    }
+
     // Keep a short raw snapshot in the web diagnostics. This is invaluable when a
     // camera firmware revision sends a packet we have not decoded yet.
     String hex;
@@ -434,6 +496,9 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
         const size_t padded = (raw + 3u) & ~((size_t)3u);
         if (cmdLen < 4 || p + raw > len) break;
 
+        // Diagnostic only: capture exact raw value bytes for every 9:2 command.
+        captureMediaProbe(&data[p], raw);
+
         const uint8_t cmd = data[p + 2];
         if (cmd == 0) { // Change Configuration
             const uint8_t category = data[p + 4];
@@ -450,15 +515,10 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
             if (category == 9 && parameter == 2 && dataType == 2 && operation == 2 && valueLen >= 2) {
                 const uint16_t seconds = (uint16_t)value[0] | ((uint16_t)value[1] << 8);
                 char remaining[12];
-                if (seconds >= 3600) {
-                    const unsigned hours = seconds / 3600u;
-                    const unsigned minutes = (seconds % 3600u) / 60u;
-                    const unsigned secs = seconds % 60u;
-                    snprintf(remaining, sizeof(remaining), "%u:%02u:%02u", hours, minutes, secs);
-                } else {
-                    snprintf(remaining, sizeof(remaining), "%02u:%02u",
-                             (unsigned)(seconds / 60u), (unsigned)(seconds % 60u));
-                }
+                const unsigned hours = seconds / 3600u;
+                const unsigned minutes = (seconds % 3600u) / 60u;
+                const unsigned secs = seconds % 60u;
+                snprintf(remaining, sizeof(remaining), "%02u:%02u:%02u", hours, minutes, secs);
                 camState.mediaRemaining = remaining;
             }
 

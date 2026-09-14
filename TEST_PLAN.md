@@ -1,16 +1,13 @@
-# v0.10.6 test plan
+# v0.10.7 MEDIA SLOT TRACE — focused test
 
-Use the normal validation sequence.
+1. Flash v0.10.7 and confirm the BMPCC reconnects normally.
+2. Confirm REC / STBY still works from the assigned RC switch.
+3. Confirm the goggles show `MEDIA HH:MM:SS` and that the value still matches the camera for slot 1.
+4. Open Diagnostics and confirm **Clear 9:2 Trace** is present.
+5. Set the camera to slot 2.
+6. Press **Clear 9:2 Trace**.
+7. Switch only to slot 3. Do not change codec / quality and do not start recording.
+8. Wait a few seconds, press Refresh, and capture the `incomingCapture` / 9:2 trace.
+9. Record the remaining time shown on the camera for slot 3 alongside the trace.
 
-1. Flash over USB.
-2. USB-power ESP32, confirm Wi-Fi appears quickly.
-3. Open `192.168.4.1`, power BMPCC4K, confirm BLE connection/pairing and web REC/STOP.
-4. Remove USB power.
-5. Power the drone from LiPo and confirm saved-camera BLE reconnect, Wi-Fi, TX16S REC/STOP and OSD.
-6. Compare the BMPCC4K remaining-time display with Diagnostics `mediaRemaining`.
-7. Confirm the second OSD Custom Message shows `LEFT <same time>`.
-8. Record for 15-30 seconds and confirm the value decreases and remains consistent with the camera.
-9. Change BRAW quality (for example Q1 <-> Q5) and confirm the value updates to the camera's new remaining-time estimate.
-10. Confirm MSP remains at 0 timeouts / 0 invalid frames.
-
-Do not change Wi-Fi/BLE/MSP behavior during this validation.
+Known reference from the current bench test: slot 3 displayed `01:27:22`.

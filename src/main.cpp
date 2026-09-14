@@ -62,14 +62,14 @@ static String osdStatusText() {
 static String osdMediaText() {
     const CameraState& c = camera.state();
     if (!c.connected) return "MEDIA --";
-    if (c.mediaRemaining.length() && c.mediaRemaining != "--") return "LEFT " + c.mediaRemaining;
+    if (c.mediaRemaining.length() && c.mediaRemaining != "--") return "MEDIA " + c.mediaRemaining;
     return "MEDIA --";
 }
 
 void setup() {
     Serial.begin(115200);
     delay(250);
-    diagLog("BOOT: FPVCineCam32 v0.10.6 MEDIA REMAINING");
+    diagLog("BOOT: FPVCineCam32 v0.10.7 MEDIA SLOT TRACE");
     Serial.printf("[%8lu ms] resetReason=%d freeHeap=%u\n", (unsigned long)millis(), (int)esp_reset_reason(), (unsigned)ESP.getFreeHeap());
     diagLog("SETTINGS: begin");
     settingsStore.begin();
