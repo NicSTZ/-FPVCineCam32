@@ -84,6 +84,9 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     camState.incomingSubscription = "none";
     camState.incomingPackets = 0;
     camState.lastIncoming = "";
+    camState.incomingCapture = "";
+    for (size_t i = 0; i < CAPTURE_SLOTS; i++) capture[i] = CaptureSlot{};
+    captureSequence = 0;
     incomingSubscribeOk = false;
     incomingPacketCount = 0;
     postAuthRequested = false;
@@ -413,6 +416,74 @@ void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
     }
 }
 
+void BlackmagicCamera::captureIncoming(const uint8_t* data, size_t len) {
+    // Diagnostic-only capture. Blackmagic CCU packets begin with a 4-byte command
+    // header; Change Configuration packets then expose category/parameter/type/op.
+    // Group by that signature instead of storing every notification, so rapidly
+    // changing values cannot flood the ESP32 heap or diagnostics page.
+    if (!data || len < 4) return;
+
+    uint8_t command = data[2];
+    uint8_t category = 0xFF, parameter = 0xFF, dataType = 0xFF, operation = 0xFF;
+    if (len >= 8) {
+        category = data[4]; parameter = data[5]; dataType = data[6]; operation = data[7];
+    }
+
+    CaptureSlot* slot = nullptr;
+    for (size_t i = 0; i < CAPTURE_SLOTS; i++) {
+        if (capture[i].used && capture[i].command == command && capture[i].category == category &&
+            capture[i].parameter == parameter && capture[i].dataType == dataType && capture[i].operation == operation) {
+            slot = &capture[i]; break;
+        }
+    }
+    if (!slot) {
+        for (size_t i = 0; i < CAPTURE_SLOTS; i++) {
+            if (!capture[i].used) { slot = &capture[i]; break; }
+        }
+    }
+    if (!slot) {
+        // Replace the least-recently-seen signature. This keeps capture bounded.
+        slot = &capture[0];
+        for (size_t i = 1; i < CAPTURE_SLOTS; i++)
+            if (capture[i].lastSequence < slot->lastSequence) slot = &capture[i];
+        *slot = CaptureSlot{};
+    }
+
+    if (!slot->used) {
+        slot->used = true; slot->command = command; slot->category = category;
+        slot->parameter = parameter; slot->dataType = dataType; slot->operation = operation;
+    }
+    slot->count++;
+    slot->lastSequence = ++captureSequence;
+
+    const size_t dumpLen = len > 48 ? 48 : len;
+    size_t pos = 0;
+    for (size_t i = 0; i < dumpLen && pos + 4 < sizeof(slot->raw); i++) {
+        int n = snprintf(slot->raw + pos, sizeof(slot->raw) - pos, i ? " %02X" : "%02X", (unsigned)data[i]);
+        if (n <= 0) break;
+        pos += (size_t)n;
+    }
+    slot->raw[sizeof(slot->raw)-1] = 0;
+    rebuildCaptureSummary();
+}
+
+void BlackmagicCamera::rebuildCaptureSummary() {
+    String out;
+    for (size_t i = 0; i < CAPTURE_SLOTS; i++) {
+        if (!capture[i].used) continue;
+        if (out.length()) out += " | ";
+        char key[48];
+        snprintf(key, sizeof(key), "#%lu C%u %u:%u T%u O%u x%lu = ",
+                 (unsigned long)capture[i].lastSequence, (unsigned)capture[i].command,
+                 (unsigned)capture[i].category, (unsigned)capture[i].parameter,
+                 (unsigned)capture[i].dataType, (unsigned)capture[i].operation,
+                 (unsigned long)capture[i].count);
+        out += key;
+        out += capture[i].raw;
+    }
+    camState.incomingCapture = out;
+}
+
 void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
     // Keep a short raw snapshot in the web diagnostics. This is invaluable when a
     // camera firmware revision sends a packet we have not decoded yet.
@@ -432,6 +503,11 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
         const size_t raw = 4u + (size_t)cmdLen;
         const size_t padded = (raw + 3u) & ~((size_t)3u);
         if (cmdLen < 4 || p + raw > len) break;
+
+        // Capture each CCU command independently. A single BLE indication may contain
+        // more than one padded command, so capturing the whole indication would hide
+        // later packet families.
+        captureIncoming(&data[p], raw);
 
         const uint8_t cmd = data[p + 2];
         if (cmd == 0) { // Change Configuration

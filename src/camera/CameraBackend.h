@@ -15,6 +15,7 @@ struct CameraState {
     String incomingSubscription = "none";
     uint32_t incomingPackets = 0;
     String lastIncoming = "";
+    String incomingCapture = "";
     String model = "";
     String protocolVersion = "";
     String status = "OFFLINE";

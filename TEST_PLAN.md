@@ -1,11 +1,12 @@
-# v0.10.2 MEDIA CAPTURE test
+# v0.10.3 test
 
-One short test only.
+Use the normal flight chain: drone + goggles + TX16S + BMPCC4K + ESP32, with recording media installed.
 
-1. Flash and boot normally.
-2. Confirm Wi-Fi, BMPCC reconnect, TX16S REC/STOP and DJI OSD REC/STBY still behave like v0.10.1.
-3. Open Diagnostics.
-4. Take one screenshot showing `incomingSubscription`, `incomingPackets`, and `lastIncoming`.
-5. If `incomingPackets` is 0, start/stop recording and change one normal camera setting, then refresh once.
+1. Cold boot everything and let the BMPCC reconnect automatically.
+2. Confirm Wi-Fi appears normally and REC/STOP still works from the TX16S switch.
+3. While camera is STBY, open Diagnostics and capture the full `incomingCapture` field.
+4. Start REC from TX16S, record 10-15 seconds, STOP from TX16S.
+5. Refresh Diagnostics and capture the full `incomingCapture` field again.
+6. Also confirm Custom OSD still shows REC/STBY and MEDIA --.
 
-Do not troubleshoot media on the bench beyond that. The screenshot is the evidence for the decoder build.
+Do not change camera codec/media/settings during this test. The only controlled variable is REC -> STOP.
