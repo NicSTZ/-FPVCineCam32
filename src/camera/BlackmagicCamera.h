@@ -44,6 +44,11 @@ private:
 
     bool serviceReady = false;
     bool subscriptionsReady = false;
+
+    // v0.10.2: telemetry acquisition only. Incoming camera-control traffic is
+    // deliberately isolated from the proven outgoing REC/STOP path.
+    bool incomingSubscribeOk = false;
+    volatile uint32_t incomingPacketCount = 0;
     bool reconnectWanted = false;
     uint32_t nextReconnectMs = 0;
     volatile bool postAuthRequested = false;

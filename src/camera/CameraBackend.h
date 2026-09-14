@@ -12,6 +12,8 @@ struct CameraState {
     float fps = 0.0f;
     String timecode = "--:--:--:--";
     String mediaRemaining = "--";
+    String incomingSubscription = "none";
+    uint32_t incomingPackets = 0;
     String lastIncoming = "";
     String model = "";
     String protocolVersion = "";

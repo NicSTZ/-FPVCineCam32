@@ -80,6 +80,12 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     camState.lastCommand = "";
     camState.lastWrite = "";
     camState.controlReady = false;
+    camState.mediaRemaining = "--";
+    camState.incomingSubscription = "none";
+    camState.incomingPackets = 0;
+    camState.lastIncoming = "";
+    incomingSubscribeOk = false;
+    incomingPacketCount = 0;
     postAuthRequested = false;
     camState.status = "CONNECTING BLE";
 
@@ -204,20 +210,39 @@ bool BlackmagicCamera::triggerPairingByEncryptedWrite() {
 
 bool BlackmagicCamera::discoverAndSubscribe() {
     if (!client || !client->isConnected() || !serviceReady) return false;
-    bool ok = true;
-    if (incoming && incoming->canNotify()) ok &= incoming->subscribe(true, incomingNotify);
-    if (timecode && timecode->canNotify()) ok &= timecode->subscribe(true, timecodeNotify);
-    if (statusChar && statusChar->canNotify()) ok &= statusChar->subscribe(true, statusNotify);
-    subscriptionsReady = ok;
-    camState.controlReady = ok && outgoing != nullptr;
-    if (ok) {
+
+    // Preserve the v0.10.1 control path. Status/timecode subscriptions still
+    // determine the normal subscription state exactly as before. The Incoming
+    // Camera Control characteristic is telemetry-only in this build: failure to
+    // subscribe to it must not take REC/STOP offline.
+    bool coreOk = true;
+    if (timecode && timecode->canNotify()) coreOk &= timecode->subscribe(true, timecodeNotify);
+    if (statusChar && statusChar->canNotify()) coreOk &= statusChar->subscribe(true, statusNotify);
+
+    incomingSubscribeOk = false;
+    camState.incomingSubscription = "none";
+    if (incoming) {
+        if (incoming->canNotify()) {
+            camState.incomingSubscription = "notify";
+            incomingSubscribeOk = incoming->subscribe(true, incomingNotify);
+        }
+        if (!incomingSubscribeOk && incoming->canIndicate()) {
+            camState.incomingSubscription = "indicate";
+            incomingSubscribeOk = incoming->subscribe(false, incomingNotify);
+        }
+        if (!incomingSubscribeOk) camState.incomingSubscription = "failed";
+    }
+
+    subscriptionsReady = coreOk;
+    camState.controlReady = coreOk && outgoing != nullptr;
+    if (coreOk) {
         camState.paired = true;
         camState.status = "BMD CONTROL READY";
     } else {
         camState.controlReady = false;
         camState.status = "SUBSCRIBE FAIL";
     }
-    return ok;
+    return coreOk;
 }
 
 void BlackmagicCamera::loop() {
@@ -364,7 +389,10 @@ void BlackmagicCamera::forgetPairing() {
 }
 
 void BlackmagicCamera::incomingNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
-    if (instance) instance->parseIncoming(data, len);
+    if (!instance) return;
+    instance->incomingPacketCount++;
+    instance->camState.incomingPackets = (uint32_t)instance->incomingPacketCount;
+    instance->parseIncoming(data, len);
 }
 void BlackmagicCamera::timecodeNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
     if (instance) instance->parseTimecode(data, len);

@@ -1,22 +1,25 @@
-# FPVCineCam32 v0.10.1 DIAG
+# FPVCineCam32 v0.10.2 MEDIA CAPTURE
 
-Diagnostic build based directly on the known-good v0.10 Wi-Fi coexistence build.
+Clean single-purpose build based directly on the validated **v0.10.1 DIAG FIXED** baseline.
 
-## Purpose
-Determine what the ESP32-C3 is actually doing during the intermittent setup-Wi-Fi startup without redesigning startup or camera control.
+## Preserved unchanged
+- SoftAP-first startup and 750 ms Wi-Fi head start
+- 90-second Wi-Fi idle shutdown and Disable Wi-Fi button
+- Blackmagic pairing/reconnect behavior
+- TX16S -> Betaflight MSP -> REC/STOP
+- DJI OSD REC/STBY
+- v0.10.1 serial diagnostics
+- No timecode fix, no media decoder guess, no multicamera code
 
-## Runtime behavior
-Intentionally unchanged from v0.10:
-- same SoftAP-first startup
-- same 750 ms Wi-Fi head start
-- same Blackmagic BLE pairing/reconnect logic
-- same Betaflight MSP/RC handling
-- same REC/STOP behavior
-- same REC/STBY OSD behavior
-- same 90-second idle Wi-Fi shutdown
-- same Disable Wi-Fi button
+## Only functional change
+The Blackmagic **Incoming Camera Control** characteristic is now treated as an isolated telemetry path. The firmware tries Notify first and, only if that is unavailable/fails, Indicate. Failure on this telemetry subscription cannot disable the proven outgoing REC/STOP control path.
 
-## Only functional addition
-USB Serial diagnostics at 115200 baud. Logs boot timing, SoftAP return value/IP/mode, BLE/control state transitions, station count and free heap. A compact state line is also printed every 5 seconds.
+The Diagnostics JSON adds:
+- `incomingSubscription` (`notify`, `indicate`, `failed`, or `none`)
+- `incomingPackets`
+- `lastIncoming` (existing raw hex snapshot)
 
-This build deliberately does **not** add media decoding, ISO, multicamera support or any BLE protocol changes.
+This build deliberately leaves `mediaRemaining` as `--`. We will decode media remaining only after the Pocket 4K firmware 8.1 gives us a real incoming payload.
+
+## Repository hygiene
+`platformio.ini` whitelists only the five intended `.cpp` translation units. Old experimental GoPro/DJI `.cpp` files left in the GitHub repository cannot compile into this firmware. This package itself contains no GoPro/DJI source files.
