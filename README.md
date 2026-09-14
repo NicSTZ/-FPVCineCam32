@@ -1,20 +1,20 @@
-# FPVCineCam32 v0.10.4 ISOLATED CAPTURE
+# FPVCineCam32 v0.10.5 9:2 TRACE
 
-Clean diagnostic build based directly on the validated **v0.10.3 PACKET CAPTURE** build.
+Focused diagnostic build based directly on the validated v0.10.4 ISOLATED CAPTURE baseline.
 
 ## Preserved unchanged
-- v0.10.3 Wi-Fi startup/order/timing and 90-second idle shutdown
-- Blackmagic BLE pairing/reconnect and Incoming Control indication subscription
+
+- v0.10.4 Wi-Fi startup/order/timing and 90-second idle shutdown
+- Blackmagic BLE pairing/reconnect and incoming Control indication subscription
 - TX16S -> Betaflight MSP -> REC/STOP
 - DJI OSD REC/STBY
 - MSP polling/timing
-- Existing bounded 16-slot CCU packet capture
 - No media decoder guess, no timecode fix, no multicamera/GoPro/DJI backend code
 
-## Only functional addition
-A **Clear Capture** button and `/api/clearCapture` endpoint were added to Diagnostics. The web request only sets a reset flag; the capture array is actually cleared on the next incoming Blackmagic packet inside the same BLE callback context that normally updates it. This avoids cross-task mutation of the capture buffer.
+## Only diagnostic change
 
-Clearing resets only the diagnostic packet groups, sequence numbers and raw last-packet snapshot. It does **not** reset BLE, pairing, camera control, MSP, OSD or the lifetime incoming-packet counter. `mediaRemaining` intentionally remains `--`.
+The broad packet-family capture used in v0.10.3/v0.10.4 is removed from this branch. `incomingCapture` now contains only CCU Change Configuration **category 9 / parameter 2** events. Each event records arrival sequence, `millis()` timestamp, and the exact payload bytes. No meaning is assigned to those bytes yet.
 
-## Repository hygiene
-The source tree remains clean and the `platformio.ini` whitelist still compiles only the five intended `.cpp` files.
+The trace is fixed at 40 entries and wraps in-place, so memory use is bounded. **Clear 9:2 Trace** resets only this diagnostic trace.
+
+`mediaRemaining` intentionally remains `--`.

@@ -1,11 +1,13 @@
-# v0.10.4 isolated-capture test
+# v0.10.5 test plan
 
-Use the normal flight chain: drone + goggles + TX16S + BMPCC4K + ESP32, with recording media installed.
+Use the normal real-flight chain: drone + goggles + TX16S + BMPCC4K + ESP32.
 
-1. Cold boot and confirm normal Wi-Fi, BMPCC reconnect, TX16S REC/STOP and OSD.
-2. In STBY, open Diagnostics and tap **Clear Capture**. Wait ~10 seconds. Screenshot the full `incomingCapture`.
-3. Tap **Clear Capture** again. Start REC from TX16S and record ~20 seconds. While still recording, screenshot the full `incomingCapture`.
-4. STOP from TX16S. Tap **Clear Capture** again. Wait ~10 seconds in STBY. Screenshot the full `incomingCapture`.
-5. Confirm MSP still shows zero timeouts/invalid frames and MEDIA remains `--`.
+1. Validate normal Wi-Fi, saved BLE reconnect, MSP, REC/STOP and OSD first.
+2. Open Diagnostics and tap **Clear 9:2 Trace**.
+3. Leave camera in STBY for ~10 seconds; screenshot `incomingCapture`.
+4. Tap **Clear 9:2 Trace**.
+5. Start REC from TX16S and record for ~20-30 seconds. While still recording, screenshot `incomingCapture`.
+6. STOP. Tap **Clear 9:2 Trace**.
+7. Leave camera in STBY for ~10 seconds; screenshot `incomingCapture`.
 
-Do not change codec, frame rate, media or camera settings during this test.
+Expected: `mediaRemaining` remains `--`; this build is evidence capture only.
