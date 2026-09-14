@@ -87,6 +87,7 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     camState.incomingCapture = "";
     for (size_t i = 0; i < CAPTURE_SLOTS; i++) capture[i] = CaptureSlot{};
     captureSequence = 0;
+    captureClearRequested = false;
     incomingSubscribeOk = false;
     incomingPacketCount = 0;
     postAuthRequested = false;
@@ -416,6 +417,14 @@ void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
     }
 }
 
+
+void BlackmagicCamera::clearIncomingCapture() {
+    // Web UI only requests a reset. The actual capture array is cleared inside
+    // parseIncoming(), i.e. in the same BLE callback context that writes it.
+    // This avoids racing the NimBLE host task while keeping control behavior untouched.
+    captureClearRequested = true;
+}
+
 void BlackmagicCamera::captureIncoming(const uint8_t* data, size_t len) {
     // Diagnostic-only capture. Blackmagic CCU packets begin with a 4-byte command
     // header; Change Configuration packets then expose category/parameter/type/op.
@@ -485,6 +494,14 @@ void BlackmagicCamera::rebuildCaptureSummary() {
 }
 
 void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
+    if (captureClearRequested) {
+        captureClearRequested = false;
+        for (size_t i = 0; i < CAPTURE_SLOTS; i++) capture[i] = CaptureSlot{};
+        captureSequence = 0;
+        camState.incomingCapture = "";
+        camState.lastIncoming = "";
+    }
+
     // Keep a short raw snapshot in the web diagnostics. This is invaluable when a
     // camera firmware revision sends a packet we have not decoded yet.
     String hex;

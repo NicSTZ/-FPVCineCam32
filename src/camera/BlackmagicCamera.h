@@ -17,6 +17,7 @@ public:
     bool submitPasskey(uint32_t pin) override;
     bool waitingForPasskey() const override { return passkeyPending; }
     const CameraState& state() const override { return camState; }
+    void clearIncomingCapture();
 
     void setSavedTarget(const String& address, uint8_t type) { savedAddress = address; savedAddressType = type; }
     String currentAddress() const { return connectedAddress; }
@@ -67,6 +68,7 @@ private:
     static constexpr size_t CAPTURE_SLOTS = 16;
     CaptureSlot capture[CAPTURE_SLOTS];
     uint32_t captureSequence = 0;
+    volatile bool captureClearRequested = false;
     bool reconnectWanted = false;
     uint32_t nextReconnectMs = 0;
     volatile bool postAuthRequested = false;
