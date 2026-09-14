@@ -503,7 +503,11 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
             // disk 1 and bit 6 for disk 2. Pocket 4K hardware capture shows bit 4
             // for its third media slot (USB), yielding 0x10 when slot 3 is active.
             // A zero active-slot mask is treated as no active media and clears OSD.
-            if (category == 10 && parameter == 1 && dataType == 1 && operation == 0 && valueLen >= 1) {
+            // Camera-originated transport telemetry on the Pocket 4K arrives with
+            // operation 2, while control writes use operation 0. Accept both; operation
+            // 1 is an offset/toggle command and is deliberately ignored here.
+            if (category == 10 && parameter == 1 && dataType == 1 &&
+                (operation == 0 || operation == 2) && valueLen >= 1) {
                 const uint8_t mode = value[0];
                 camState.recording = (mode == 2);
                 camState.status = camState.recording ? "REC" : "BMD READY";

@@ -1,20 +1,15 @@
-# FPVCineCam32 v0.10.9 ACTIVE MEDIA
+# FPVCineCam32 v0.10.10 ACTIVE MEDIA FIX
 
-Targeted production candidate based directly on the proven v0.10.x Blackmagic path.
+Targeted correction on top of v0.10.9.
 
-## Deliberate change
-- Decode Pocket 4K category **9 / parameter 2** as three little-endian remaining-time slots.
-- Decode category **10 / parameter 1** active-media flags and select the matching 9:2 slot for `MEDIA HH:MM:SS`.
-- Blackmagic documents slot 1 active as flag `0x20` and slot 2 as `0x40`; Pocket 4K bench capture established slot 3 / USB as `0x10`.
-- A 10:1 packet with no active-media flag clears the OSD to `MEDIA --`, preventing stale time after media removal.
-- Before the first 10:1 update, exactly one populated 9:2 slot may be displayed because it is unambiguous. Multiple populated slots are not guessed.
-- Diagnostics expose `activeMediaSlot`, `mediaSlots`, `mediaRemaining`, and generic `lastIncoming`. Temporary trace buffers/buttons are removed.
+## Change
 
-## Intentionally unchanged
-- Proven Blackmagic NimBLE pairing/reconnect and REC/STOP write path.
-- TX16S switch mapping and MSP polling.
-- DJI OSD REC/STBY path and custom-message placement.
-- Setup Wi-Fi behavior.
-- ESP32-C3 SuperMini GPIO6 RX / GPIO7 TX at 115200.
+- Corrects the 10:1 receive decoder to accept camera-originated operation `2` telemetry as well as operation `0` control-state packets.
+- Keeps the proven Pocket 4K active-media mapping: flag `0x20` = slot 1, `0x40` = slot 2, and captured Pocket 4K extension `0x10` = slot 3 / USB.
+- Active slot selects the matching decoded 9:2 remaining-time value. A zero active-media mask clears the display to `MEDIA --`.
+
+## Deliberately unchanged
+
+BLE connection/pairing, REC/STOP writes, Wi-Fi behavior, MSP/OSD, RC mapping, GPIO6/7, and 9:2 media-time decoding are unchanged from v0.10.9.
 
 Known-good fallback remains **v0.10.6 MEDIA REMAINING**.
