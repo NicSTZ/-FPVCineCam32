@@ -69,7 +69,7 @@ static String osdMediaText() {
 void setup() {
     Serial.begin(115200);
     delay(250);
-    diagLog("BOOT: FPVCineCam32 v0.10.2 media capture");
+    diagLog("BOOT: FPVCineCam32 v0.10.3 packet capture");
     Serial.printf("[%8lu ms] resetReason=%d freeHeap=%u\n", (unsigned long)millis(), (int)esp_reset_reason(), (unsigned)ESP.getFreeHeap());
     diagLog("SETTINGS: begin");
     settingsStore.begin();
