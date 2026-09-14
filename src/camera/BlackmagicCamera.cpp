@@ -25,9 +25,8 @@ void BlackmagicCamera::begin() {
 bool BlackmagicCamera::startScan(String& jsonOut) {
     NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setActiveScan(true);
-    // Espressif recommends equal BLE scan interval/window during Wi-Fi coexistence.
     scan->setInterval(60);
-    scan->setWindow(60);
+    scan->setWindow(45);
     NimBLEScanResults results = scan->getResults(3500, false);
     jsonOut = "[";
     bool first = true;
@@ -205,31 +204,20 @@ bool BlackmagicCamera::triggerPairingByEncryptedWrite() {
 
 bool BlackmagicCamera::discoverAndSubscribe() {
     if (!client || !client->isConnected() || !serviceReady) return false;
-
-    // Outgoing control is the proven REC/STOP path. Telemetry subscriptions are
-    // deliberately kept separate so a missing incoming characteristic can never
-    // disable camera control that is already known to work.
-    bool incomingOk = false;
-    bool statusOk = false;
-
-    if (incoming) {
-        if (incoming->canNotify()) incomingOk = incoming->subscribe(true, incomingNotify);
-        else if (incoming->canIndicate()) incomingOk = incoming->subscribe(false, incomingNotify);
+    bool ok = true;
+    if (incoming && incoming->canNotify()) ok &= incoming->subscribe(true, incomingNotify);
+    if (timecode && timecode->canNotify()) ok &= timecode->subscribe(true, timecodeNotify);
+    if (statusChar && statusChar->canNotify()) ok &= statusChar->subscribe(true, statusNotify);
+    subscriptionsReady = ok;
+    camState.controlReady = ok && outgoing != nullptr;
+    if (ok) {
+        camState.paired = true;
+        camState.status = "BMD CONTROL READY";
+    } else {
+        camState.controlReady = false;
+        camState.status = "SUBSCRIBE FAIL";
     }
-    // Timecode is deliberately not subscribed in flight builds. We do not use it
-    // and it can generate frequent BLE notifications that needlessly compete with
-    // the ESP32-C3 setup SoftAP.
-    if (statusChar) {
-        if (statusChar->canNotify()) statusOk = statusChar->subscribe(true, statusNotify);
-        else if (statusChar->canIndicate()) statusOk = statusChar->subscribe(false, statusNotify);
-    }
-
-    subscriptionsReady = statusOk || incomingOk;
-    camState.telemetryReady = incomingOk;
-    camState.controlReady = outgoing != nullptr;
-    camState.paired = true;
-    camState.status = camState.controlReady ? "BMD CONTROL READY" : "BMD CONTROL MISSING";
-    return camState.controlReady;
+    return ok;
 }
 
 void BlackmagicCamera::loop() {
@@ -278,7 +266,6 @@ void BlackmagicCamera::ClientCallbacks::onDisconnect(NimBLEClient*, int reason) 
     o->serviceReady = false;
     o->subscriptionsReady = false;
     o->camState.controlReady = false;
-    o->camState.telemetryReady = false;
     o->postAuthRequested = false;
     o->passkeyPending = false;
     o->pendingConnHandle = BLE_HS_CONN_HANDLE_NONE;
@@ -377,61 +364,39 @@ void BlackmagicCamera::forgetPairing() {
 }
 
 void BlackmagicCamera::incomingNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
-    if (instance) {
-        instance->incomingNotifyCount++;
-        instance->parseIncoming(data, len);
-    }
+    if (instance) instance->parseIncoming(data, len);
 }
 void BlackmagicCamera::timecodeNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
     if (instance) instance->parseTimecode(data, len);
 }
 void BlackmagicCamera::statusNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
-    if (instance) {
-        instance->statusNotifyCount++;
-        instance->parseStatus(data, len);
-    }
+    if (instance) instance->parseStatus(data, len);
 }
 
 void BlackmagicCamera::parseStatus(const uint8_t* data, size_t len) {
     if (!len) return;
-    const uint8_t f = data[0];
+    uint8_t f = data[0];
     camState.connected = f & 0x02;
     camState.paired = f & 0x04;
     camState.ready = f & 0x20;
-    // Initial payload + protocol verification are useful indicators that the
-    // camera has completed its telemetry setup, but never gate REC/STOP on them.
-    if ((f & 0x10) && incomingNotifyCount > 0) camState.telemetryReady = true;
     if (camState.ready) {
-        camState.controlReady = outgoing != nullptr;
+        camState.controlReady = true;
         camState.status = camState.recording ? "REC" : "BMD READY";
     }
 }
 
-String BlackmagicCamera::formatRemainingSeconds(uint32_t seconds) {
-    const uint32_t mins = (seconds + 30u) / 60u;
-    if (mins < 60u) return String(mins) + "m";
-    const uint32_t h = mins / 60u;
-    const uint32_t m = mins % 60u;
-    return m ? String(h) + "h" + String(m) + "m" : String(h) + "h";
-}
-
 void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
-    // Snapshot diagnostics at most once per second. Avoid repeatedly allocating
-    // Strings inside the BLE callback; that caused unnecessary heap/radio churn.
-    const uint32_t now = millis();
-    if (now - lastDiagSnapshotMs >= 1000) {
-        lastDiagSnapshotMs = now;
-        String hex;
-        hex.reserve(72);
-        const size_t dumpLen = len > 24 ? 24 : len;
-        for (size_t i = 0; i < dumpLen; i++) {
-            char b[4];
-            snprintf(b, sizeof(b), "%02X", (unsigned)data[i]);
-            if (i) hex += ' ';
-            hex += b;
-        }
-        camState.lastIncoming = hex;
+    // Keep a short raw snapshot in the web diagnostics. This is invaluable when a
+    // camera firmware revision sends a packet we have not decoded yet.
+    String hex;
+    const size_t dumpLen = len > 48 ? 48 : len;
+    for (size_t i = 0; i < dumpLen; i++) {
+        char b[4];
+        snprintf(b, sizeof(b), "%02X", (unsigned)data[i]);
+        if (i) hex += ' ';
+        hex += b;
     }
+    camState.lastIncoming = hex;
 
     size_t p = 0;
     while (p + 4 <= len) {
@@ -455,25 +420,6 @@ void BlackmagicCamera::parseIncoming(const uint8_t* data, size_t len) {
                 const uint8_t mode = value[0];
                 camState.recording = (mode == 2);
                 camState.status = camState.recording ? "REC" : "BMD READY";
-            }
-
-            // Pocket cameras also publish per-media remaining record time in the
-            // status category used by Blackmagic's desktop/sample implementations.
-            // Values are signed int16: positive values are seconds; negative values
-            // represent minutes. Multiple int16 values may be present (one per slot).
-            // This is deliberately defensive: unknown/sentinel values leave MEDIA --.
-            if (category == 9 && parameter == 2 && dataType == 2 && valueLen >= 2) {
-                String best;
-                for (size_t off = 0; off + 1 < valueLen; off += 2) {
-                    const int16_t v = (int16_t)((uint16_t)value[off] | ((uint16_t)value[off + 1] << 8));
-                    if (v == INT16_MIN || v == 0) continue;
-                    uint32_t seconds = v > 0 ? (uint32_t)v : (uint32_t)(-v) * 60u;
-                    if (seconds > 0 && seconds < 60u * 60u * 1000u) {
-                        best = formatRemainingSeconds(seconds);
-                        break;
-                    }
-                }
-                if (best.length()) camState.mediaRemaining = best;
             }
         }
 

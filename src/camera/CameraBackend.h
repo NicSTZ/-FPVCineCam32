@@ -19,15 +19,11 @@ struct CameraState {
     String lastCommand = "";
     String lastWrite = "";
     bool controlReady = false;
-    bool telemetryReady = false;
 };
 
 class ICameraBackend {
 public:
     virtual ~ICameraBackend() = default;
-    virtual const char* systemKey() const = 0;
-    virtual const char* systemName() const = 0;
-    virtual bool isExperimental() const { return false; }
     virtual void begin() = 0;
     virtual void loop() = 0;
     virtual bool startScan(String& jsonOut) = 0;
@@ -39,5 +35,4 @@ public:
     virtual bool submitPasskey(uint32_t pin) = 0;
     virtual bool waitingForPasskey() const = 0;
     virtual const CameraState& state() const = 0;
-    virtual void setSavedTarget(const String& address, uint8_t type) = 0;
 };
