@@ -1,13 +1,16 @@
-# v0.10.5 test plan
+# v0.10.6 test plan
 
-Use the normal real-flight chain: drone + goggles + TX16S + BMPCC4K + ESP32.
+Use the normal validation sequence.
 
-1. Validate normal Wi-Fi, saved BLE reconnect, MSP, REC/STOP and OSD first.
-2. Open Diagnostics and tap **Clear 9:2 Trace**.
-3. Leave camera in STBY for ~10 seconds; screenshot `incomingCapture`.
-4. Tap **Clear 9:2 Trace**.
-5. Start REC from TX16S and record for ~20-30 seconds. While still recording, screenshot `incomingCapture`.
-6. STOP. Tap **Clear 9:2 Trace**.
-7. Leave camera in STBY for ~10 seconds; screenshot `incomingCapture`.
+1. Flash over USB.
+2. USB-power ESP32, confirm Wi-Fi appears quickly.
+3. Open `192.168.4.1`, power BMPCC4K, confirm BLE connection/pairing and web REC/STOP.
+4. Remove USB power.
+5. Power the drone from LiPo and confirm saved-camera BLE reconnect, Wi-Fi, TX16S REC/STOP and OSD.
+6. Compare the BMPCC4K remaining-time display with Diagnostics `mediaRemaining`.
+7. Confirm the second OSD Custom Message shows `LEFT <same time>`.
+8. Record for 15-30 seconds and confirm the value decreases and remains consistent with the camera.
+9. Change BRAW quality (for example Q1 <-> Q5) and confirm the value updates to the camera's new remaining-time estimate.
+10. Confirm MSP remains at 0 timeouts / 0 invalid frames.
 
-Expected: `mediaRemaining` remains `--`; this build is evidence capture only.
+Do not change Wi-Fi/BLE/MSP behavior during this validation.

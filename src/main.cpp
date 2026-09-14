@@ -69,7 +69,7 @@ static String osdMediaText() {
 void setup() {
     Serial.begin(115200);
     delay(250);
-    diagLog("BOOT: FPVCineCam32 v0.10.5 9:2 trace");
+    diagLog("BOOT: FPVCineCam32 v0.10.6 MEDIA REMAINING");
     Serial.printf("[%8lu ms] resetReason=%d freeHeap=%u\n", (unsigned long)millis(), (int)esp_reset_reason(), (unsigned)ESP.getFreeHeap());
     diagLog("SETTINGS: begin");
     settingsStore.begin();
@@ -154,9 +154,8 @@ void loop() {
     if(now-lastOsdUpdate>=500){
         lastOsdUpdate=now;
         msp.setCustomText(settings.osdSlot, osdStatusText());
-        // v0.9 uses the next Custom Message slot for media remaining. Until we
-        // have decoded the Pocket 4K's media-remaining BLE payload this cleanly
-        // shows MEDIA -- instead of bogus timecode data.
+        // The next Custom Message slot carries decoded Pocket 4K remaining
+        // record duration from category 9 / parameter 2 telemetry.
         if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
     }
 
