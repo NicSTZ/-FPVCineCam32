@@ -25,7 +25,7 @@ static constexpr uint32_t WIFI_SETUP_WINDOW_MS = 90000;
 static uint32_t lastDiagLog = 0;
 static bool lastDiagCamConnected = false;
 static bool lastDiagControlReady = false;
-static wl_mode_t lastDiagWifiMode = WIFI_MODE_NULL;
+static wifi_mode_t lastDiagWifiMode = WIFI_MODE_NULL;
 
 static void diagLog(const char* msg) {
     Serial.printf("[%8lu ms] %s\n", (unsigned long)millis(), msg);
@@ -33,7 +33,7 @@ static void diagLog(const char* msg) {
 
 static void diagLogState(const char* reason) {
     const CameraState& c = camera.state();
-    const wl_mode_t mode = WiFi.getMode();
+    const wifi_mode_t mode = WiFi.getMode();
     Serial.printf("[%8lu ms] STATE %-12s wifiMode=%d apIP=%s stations=%u camConnected=%d controlReady=%d camStatus=\"%s\" heap=%u\n",
                   (unsigned long)millis(), reason, (int)mode,
                   WiFi.softAPIP().toString().c_str(),
@@ -117,7 +117,7 @@ void loop() {
 
     // Diagnostic-only logging. No control behavior is changed from v0.10.
     const CameraState& diagCam = camera.state();
-    const wl_mode_t diagMode = WiFi.getMode();
+    const wifi_mode_t diagMode = WiFi.getMode();
     if (diagCam.connected != lastDiagCamConnected || diagCam.controlReady != lastDiagControlReady || diagMode != lastDiagWifiMode) {
         lastDiagCamConnected = diagCam.connected;
         lastDiagControlReady = diagCam.controlReady;
