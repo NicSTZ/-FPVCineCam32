@@ -8,7 +8,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;ma
 h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
 button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}.statusBadge{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;font-weight:600;margin-bottom:8px}.statusBadge::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor}.statusOnline{color:#6ee787;background:#17351f}.statusOffline{color:#ff6b6b;background:#3a1b1b}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
-<h1>FPVCineCam32 <small>v0.10.12 CONNECTION DIAGNOSTICS</small></h1><div class=sub>Camera control + Betaflight MSP</div>
+<h1>FPVCineCam32 <small>v0.10.13 AUTO RECONNECT</small></h1><div class=sub>Camera control + Betaflight MSP</div>
 
 <div class=card><h3>Camera selection</h3>
 <label>Camera system <select id=system><option value=blackmagic>Blackmagic Pocket Cinema Camera</option><option value=gopro>GoPro — connection coming next</option></select></label>
@@ -236,7 +236,7 @@ void WebUi::routes(){
     server.on("/",HTTP_GET,[this](){server.send_P(200,"text/html",PAGE);});
     server.on("/api/wifioff",HTTP_GET,[this](){ server.send(200,"application/json","{\"ok\":true}"); stopRequested=true; stopAtMs=millis()+250; });
     server.on("/api/connectionLog",HTTP_GET,[this](){
-        String report="FPVCineCam32 v0.10.12 CONNECTION DIAGNOSTICS\nCamera: "+s.cameraSystem+"\n";
+        String report="FPVCineCam32 v0.10.13 AUTO RECONNECT\nCamera: "+s.cameraSystem+"\n";
         report += cam.connectionLog();
         report += "\nCurrent diagnostics snapshot:\n";
         report += statusJson();

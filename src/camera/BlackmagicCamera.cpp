@@ -52,8 +52,15 @@ bool BlackmagicCamera::startScan(String& jsonOut) {
 }
 
 bool BlackmagicCamera::connectTo(const String& address, uint8_t addressType) {
+    return queueConnect(address, addressType, false);
+}
+
+bool BlackmagicCamera::queueConnect(const String& address, uint8_t addressType, bool automatic) {
     connectionTrace.add("CONNECT request address=%.32s type=%u queued=%d task=%d pinPending=%d", address.c_str(), (unsigned)addressType, (int)connectRequested, (int)connectTaskRunning, (int)passkeyPending);
     if (!address.length()) return false;
+    // A new explicit request supersedes any pending automatic recovery.
+    if (!automatic) reconnectWanted = false;
+    requestedAutomatic = automatic;
     requestedAddress = address;
     requestedAddressType = addressType;
     connectRequested = true;
@@ -66,15 +73,27 @@ void BlackmagicCamera::connectTaskThunk(void* arg) {
     BlackmagicCamera* self = static_cast<BlackmagicCamera*>(arg);
     String addr = self->requestedAddress;
     uint8_t type = self->requestedAddressType;
-    self->connectionTrace.add("TASK start address=%s type=%u", addr.c_str(), (unsigned)type);
+    const bool automatic = self->requestedAutomatic;
+    self->connectionTrace.add("TASK start address=%s type=%u automatic=%d", addr.c_str(), (unsigned)type, automatic);
     self->connectRequested = false;
-    self->performConnect(addr, type);
+    self->performConnect(addr, type, automatic);
     self->connectionTrace.add("TASK finish status=%.48s queued=%d", self->camState.status.c_str(), (int)self->connectRequested);
     self->connectTaskRunning = false;
     vTaskDelete(nullptr);
 }
 
-void BlackmagicCamera::performConnect(const String& address, uint8_t addressType) {
+void BlackmagicCamera::retryFailedAutomaticConnect(const String& address, uint8_t addressType, bool automatic) {
+    // Only failed recovery attempts may re-arm the timer. Never override a newer
+    // request, a cleared/changed target, an established link or PIN exchange.
+    if (!automatic || connectRequested || !savedAddress.length() ||
+        savedAddress != address || savedAddressType != addressType ||
+        passkeyPending || (client && client->isConnected())) return;
+    nextReconnectMs = millis() + 2500;
+    reconnectWanted = true;
+    connectionTrace.add("RECONNECT retry scheduled after failed automatic attempt delay=2500ms");
+}
+
+void BlackmagicCamera::performConnect(const String& address, uint8_t addressType, bool automatic) {
     connectionTrace.add("CONNECT begin previousLink=%d", client && client->isConnected());
     if (client && client->isConnected()) client->disconnect();
 
@@ -116,6 +135,7 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     if (!client->connect(addr, true, false, false)) {
         camState.status = "BLE CONNECT FAIL";
         connectionTrace.add("BLE connect failed error=%d", client->getLastError());
+        retryFailedAutomaticConnect(address, addressType, automatic);
         return;
     }
 
@@ -301,10 +321,10 @@ void BlackmagicCamera::loop() {
         }
     }
 
-    if (reconnectWanted && !connectTaskRunning && !connectRequested && millis() >= nextReconnectMs && savedAddress.length()) {
+    if (reconnectWanted && !connectTaskRunning && !connectRequested && (int32_t)(millis() - nextReconnectMs) >= 0 && savedAddress.length()) {
         reconnectWanted = false;
         connectionTrace.add("RECONNECT timer fired");
-        connectTo(savedAddress, savedAddressType);
+        queueConnect(savedAddress, savedAddressType, true);
     }
 }
 

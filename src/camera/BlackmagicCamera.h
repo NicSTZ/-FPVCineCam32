@@ -41,6 +41,7 @@ private:
     volatile bool connectTaskRunning = false;
     String requestedAddress;
     uint8_t requestedAddressType = 0;
+    bool requestedAutomatic = false;
 
     bool serviceReady = false;
     bool subscriptionsReady = false;
@@ -74,7 +75,9 @@ private:
         BlackmagicCamera* o;
     } callbacks;
 
-    void performConnect(const String& address, uint8_t addressType);
+    bool queueConnect(const String& address, uint8_t addressType, bool automatic);
+    void retryFailedAutomaticConnect(const String& address, uint8_t addressType, bool automatic);
+    void performConnect(const String& address, uint8_t addressType, bool automatic);
     static void connectTaskThunk(void* arg);
     bool discoverAndSubscribe();
     bool triggerPairingByEncryptedWrite();
