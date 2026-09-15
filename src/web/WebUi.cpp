@@ -8,7 +8,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;ma
 h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
 button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}.statusBadge{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;font-weight:600;margin-bottom:8px}.statusBadge::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor}.statusOnline{color:#6ee787;background:#17351f}.statusOffline{color:#ff6b6b;background:#3a1b1b}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
-<h1>FPVCineCam32 <small>v0.10.11 CAMERA SELECTION</small></h1><div class=sub>Camera control + Betaflight MSP</div>
+<h1>FPVCineCam32 <small>v0.10.12 CONNECTION DIAGNOSTICS</small></h1><div class=sub>Camera control + Betaflight MSP</div>
 
 <div class=card><h3>Camera selection</h3>
 <label>Camera system <select id=system><option value=blackmagic>Blackmagic Pocket Cinema Camera</option><option value=gopro>GoPro — connection coming next</option></select></label>
@@ -49,10 +49,57 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <button onclick=wifiOff()>Disable Wi-Fi now</button>
 </div>
 
-<div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button></div>
+<div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button>
+<h4>Connection log</h4>
+<p class=muted>Latest 64 events since boot. Refresh or copy after an attempt, before rebooting. PIN digits are never logged.</p>
+<button id=refreshLog onclick=loadConnectionLog()>Refresh connection log</button>
+<button id=copyLog onclick=copyConnectionLog()>Copy connection log</button>
+<p id=copyLogStatus class=muted></p>
+<textarea id=connectionLog readonly aria-label="Connection log" style="box-sizing:border-box;width:100%;height:240px;background:#111;color:#eee">Press Refresh connection log or Copy connection log after your connection attempt.</textarea>
+</div>
 
 <script>
 const el=id=>document.getElementById(id);
+let connectionLogBusy=false;
+async function loadConnectionLog(){
+  if(connectionLogBusy) return false;
+  connectionLogBusy=true;
+  el('refreshLog').disabled=el('copyLog').disabled=true;
+  el('copyLogStatus').textContent='Reading connection log...';
+  try{
+    const response=await fetch('/api/connectionLog',{cache:'no-store'});
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    el('connectionLog').value=await response.text();
+    el('copyLogStatus').textContent='Log refreshed. Copy it before rebooting.';
+    return true;
+  }catch(e){
+    el('copyLogStatus').textContent='Could not refresh log: '+e.message+'. Displayed text may be older.';
+    return false;
+  }finally{
+    connectionLogBusy=false;
+    el('refreshLog').disabled=el('copyLog').disabled=false;
+  }
+}
+async function copyConnectionLog(){
+  if(!await loadConnectionLog()) return;
+  const box=el('connectionLog');
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(box.value);
+      el('copyLogStatus').textContent='Copied. Paste the log into this chat.';
+      return;
+    }
+  }catch(e){} // HTTP setup pages and some phones require the selection fallback.
+  box.focus();box.select();box.setSelectionRange(0,box.value.length);
+  try{
+    if(document.execCommand('copy')){
+      el('copyLogStatus').textContent='Copied. Paste the log into this chat.';
+      return;
+    }
+  }catch(e){}
+  el('copyLogStatus').textContent='Automatic copy is unavailable. The log is selected: use Copy on your phone or Ctrl/Cmd+C, then paste it here.';
+}
+
 let selectionInitialized=false;
 async function selectCamera(){
   el('switchCamera').disabled=true;
@@ -188,6 +235,14 @@ void WebUi::routes(){
     });
     server.on("/",HTTP_GET,[this](){server.send_P(200,"text/html",PAGE);});
     server.on("/api/wifioff",HTTP_GET,[this](){ server.send(200,"application/json","{\"ok\":true}"); stopRequested=true; stopAtMs=millis()+250; });
+    server.on("/api/connectionLog",HTTP_GET,[this](){
+        String report="FPVCineCam32 v0.10.12 CONNECTION DIAGNOSTICS\nCamera: "+s.cameraSystem+"\n";
+        report += cam.connectionLog();
+        report += "\nCurrent diagnostics snapshot:\n";
+        report += statusJson();
+        server.sendHeader("Cache-Control","no-store");
+        server.send(200,"text/plain; charset=utf-8",report);
+    });
     server.on("/api/status",HTTP_GET,[this](){server.send(200,"application/json",statusJson());});
 
     server.on("/api/scan",HTTP_GET,[this](){if(!cameraAvailable())return;String j;cam.startScan(j);server.send(200,"application/json",j);});

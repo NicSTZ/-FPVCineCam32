@@ -1,24 +1,27 @@
-# v0.10.11 CAMERA SELECTION — focused hardware check
+# v0.10.12 CONNECTION DIAGNOSTICS — one focused test
 
-Use an existing paired Pocket 4K and keep the RC record switch at STOP when
-switching camera types. Flash without erasing settings. No trace clearing needed.
+Flash from the FPVCineCam32 installer without erasing settings. Keep existing
+pairing; do not press Forget pairing. Keep the TX16S recording switch at STOP.
 
-1. Boot: confirm Blackmagic is selected and the saved camera reconnects without
-   pairing again. Confirm live RC values, saved mapping and OSD slots are retained.
-2. Select GoPro, Save and restart. Rejoin setup Wi-Fi and reload. Confirm GoPro is
-   selected, diagnostics say GOPRO NOT IMPLEMENTED, and camera controls are disabled.
-   Live RC/MSP should still work; OSD should show CAM OFFLINE / MEDIA -- on supported gear.
-3. Select Blackmagic and restart. Confirm saved-camera reconnection. Use the TX16S
-   switch for one REC -> STOP cycle; confirm camera action and REC/STBY in goggles.
-   While recording, the camera-switch button should be disabled.
-4. Confirm displayed MEDIA time matches the active camera media; change active
-   media once and check it follows. Remove media and check MEDIA --.
-5. Disable Wi-Fi using the UI, then repeat one RC REC -> STOP cycle. Reboot once
-   without joining the AP: confirm it disappears after about 90 seconds and camera
-   control/OSD continue. Reboot to restore setup access.
+1. Power the camera with Bluetooth enabled. Boot the ESP, join its setup Wi-Fi,
+   and open 192.168.4.1. Confirm v0.10.12 and Blackmagic selection.
+2. Allow saved auto-connect to finish. If it does not connect, scan and click the
+   camera once. Wait about 15 seconds; enter the PIN if the camera requests it.
+3. In Diagnostics press Copy connection log, and paste the text into the chat.
+   If automatic copy is blocked, the text is selected for manual Copy. Screenshots
+   of the log also work. Copy before rebooting, even if the attempt failed.
+4. If connected, do one TX16S REC -> STOP cycle and confirm camera action,
+   REC/STBY and media remaining. Report whether Wi-Fi setup stayed responsive.
 
-Report only the failing step and its observed behavior. These steps require real
-hardware; compilation does not establish pairing, RF coexistence or OSD rendering.
+Do not intentionally spam Connect or clear pairing for the first test. If you
+naturally need another attempt, copy after the failure first, then repeat normally.
+The log records overlapping requests without changing how the firmware handles them.
+No repeat of the full multi-camera/media-slot test is required for this diagnostic-only change.
 
-Rollback: v0.10.10 firmware from commit 17011be, or known-good v0.10.6 from 6b29b3a.
-Do not erase NVS during rollback if retaining settings and bonds is desired.
+Software checks performed: full ESP32-C3 build; host ring-buffer test covering
+wraparound, truncation, concurrent writers and snapshots; web copy tests covering
+secure clipboard, HTTP legacy copy, manual fallback and failed fetch; exact
+baseline comparison after removing trace calls. Hardware behavior remains unverified.
+
+Immediate rollback: v0.10.11 at 5197f0e. Earlier candidate: v0.10.10 at 17011be.
+Known-good fallback: v0.10.6 at 6b29b3a. Preserve NVS when reflashing.
