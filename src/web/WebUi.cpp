@@ -7,14 +7,15 @@ const char WebUi::PAGE[] PROGMEM = R"HTML(
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:820px;margin:24px auto;padding:0 16px;background:#111;color:#eee}
 h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
 button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}.statusBadge{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;font-weight:600;margin-bottom:8px}.statusBadge::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor}.statusOnline{color:#6ee787;background:#17351f}.statusOffline{color:#ff6b6b;background:#3a1b1b}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
+.wiring{width:100%;border-collapse:collapse;text-align:left}.wiring caption{text-align:left;font-weight:600;margin:8px 0}.wiring th{color:#aaa;font-size:13px}.wiring th,.wiring td{padding:12px 8px;border-bottom:1px solid #38383b}.wiring tbody tr:last-child td{border-bottom:0}
 </style></head><body>
-<h1>FPVCineCam32 <small>v0.10.13 AUTO RECONNECT</small></h1><div class=sub>Camera control + Betaflight MSP</div>
+<h1>FPVCineCam32 <small>v0.10.11-r1 BASELINE UI + LOGS</small></h1><div class=sub>Camera control + Betaflight MSP</div>
 
-<div class=card><h3>Camera selection</h3>
-<label>Camera system <select id=system><option value=blackmagic>Blackmagic Pocket Cinema Camera</option><option value=gopro>GoPro — connection coming next</option></select></label>
-<button id=switchCamera onclick=selectCamera()>Save and restart</button>
+<div class=card><h3>Choose camera</h3>
+<label>Camera <select id=system><option value=blackmagic>Blackmagic Pocket Cinema Camera</option><option value=gopro>GoPro — connection coming next</option></select></label>
+<button id=switchCamera onclick=selectCamera()>Save and reboot</button>
 <p id=selectionStatus class=muted></p>
-<p class=muted>Changing camera restarts the device and disconnects setup Wi-Fi. GoPro selection is available, but GoPro connection and recording are not implemented in this version.</p>
+<p class=muted>Choose your camera, then press Save and reboot. The device will reboot automatically. Reconnect to setup Wi-Fi and reload this page. GoPro selection is available, but GoPro connection and recording are not implemented in this version.</p>
 </div>
 <div class=card><h3 id=cameraTitle>Camera</h3>
 <fieldset id=cameraControls style="border:0;padding:0;margin:0">
@@ -35,13 +36,15 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 </div>
 
 <div class=card><h3>Betaflight / MSP</h3>
-<p>ESP32-C3 SuperMini wiring is fixed: <b>FC TX -> GPIO6 (ESP RX)</b>, <b>FC RX -> GPIO7 (ESP TX)</b>, <b>GND -> GND</b>. Enable <b>MSP at 115200</b> on that Betaflight UART.</p>
+<p class=muted>Connect both signal wires to the same flight-controller UART.</p>
+<table class=wiring><caption>ESP32-C3 SuperMini MSP wiring</caption><thead><tr><th scope=col>Flight controller</th><th scope=col>ESP32-C3 SuperMini</th></tr></thead><tbody><tr><td>UART TX</td><td><b>GPIO6</b> <span class=muted>(RX)</span></td></tr><tr><td>UART RX</td><td><b>GPIO7</b> <span class=muted>(TX)</span></td></tr><tr><td>GND</td><td><b>GND</b></td></tr></tbody></table>
+<p class=muted>In Betaflight Ports, enable <b>MSP</b> at <b>115200 baud</b> on that UART.</p>
 <div id=mspSummary class=muted>Waiting for FC...</div>
 <h4>Live RC channels</h4><div id=channels class=channels></div>
 <p class=muted id=mspStats></p>
-<label>OSD Custom Message slot <select id=slot><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
-<button onclick=saveOsd()>Save OSD slot</button><button onclick=testosd()>Send OSD test</button>
-<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p class=muted>REC/STBY remains unchanged. The next Custom Message slot now shows decoded media remaining from the Pocket 4K.</p>
+<h4>OSD messages</h4>
+<button onclick=testosd()>Send OSD test</button>
+<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p><b>Media message:</b> <span id=mediaLive class=muted>Waiting...</span></p><p class=muted>REC/STBY and MEDIA HH:MM:SS use the saved OSD slots. Custom text is confirmed on O3/O4 with Goggles V2; it is not available on Vista/original Air Unit with Goggles V1/V2.</p>
 </div>
 
 <div class=card><h3>Setup Wi-Fi</h3>
@@ -101,14 +104,16 @@ async function copyConnectionLog(){
 }
 
 let selectionInitialized=false;
+let cameraSwitchPending=false;
 async function selectCamera(){
+  cameraSwitchPending=true;
   el('switchCamera').disabled=true;
   try{
     const result=await api('/api/selectCamera',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'system='+encodeURIComponent(el('system').value)});
-    el('selectionStatus').textContent=result.restart?'Restarting. Rejoin setup Wi-Fi and reload this page.':'This camera is already selected.';
+    el('selectionStatus').textContent=result.restart?'Rebooting. Reconnect to setup Wi-Fi, then reload this page.':'This camera is already selected.';
     if(result.restart) clearInterval(refreshTimer);
-    else el('switchCamera').disabled=false;
-  }catch(e){el('selectionStatus').textContent='Selection failed: '+e.message;el('switchCamera').disabled=false;}
+    else {cameraSwitchPending=false;el('switchCamera').disabled=false;}
+  }catch(e){cameraSwitchPending=false;el('selectionStatus').textContent='Selection failed: '+e.message;el('switchCamera').disabled=false;}
 }
 for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.textContent='CH'+i;el('ch').appendChild(o)}
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
@@ -119,11 +124,11 @@ function cameraLine(c){
   return `${link} | ${ready} | ${rec} | ${c.timecode}`;
 }
 function osdPreview(c){
-  if(!c.connected) return 'BMD OFFLINE';
-  if(c.waitingPin) return 'BMD ENTER PIN';
-  if(c.recording) return `REC ${c.timecode}`;
-  if(c.ready || c.paired) return `BMD STBY ${c.timecode}`;
-  return c.status || 'BMD';
+  if(!c.connected) return 'CAM OFFLINE';
+  if(c.waitingPin) return 'CAM ENTER PIN';
+  if(c.recording) return 'REC';
+  if(c.controlReady || c.ready || c.paired) return 'STBY';
+  return 'CAM WAIT';
 }
 function drawChannels(s){
   const box=el('channels');box.innerHTML='';
@@ -142,17 +147,20 @@ async function refresh(){
     if(!selectionInitialized){el('system').value=s.cameraSystem;selectionInitialized=true;}
     el('cameraTitle').textContent=s.cameraSystem==='blackmagic'?'Blackmagic Pocket Cinema Camera':'GoPro — not implemented';
     el('cameraControls').disabled=s.cameraSystem!=='blackmagic';
+    if(!cameraSwitchPending){
     el('switchCamera').disabled=s.camera.recording || s.camera.waitingPin;
     el('selectionStatus').textContent=s.camera.recording || s.camera.waitingPin?'Stop recording and finish PIN entry before switching cameras.':'Running: '+s.cameraSystem;
+    }
     el('pin').style.display=s.camera.waitingPin?'block':'none';
     el('camSummary').textContent=cameraLine(s.camera)+(s.camera.model?` | ${s.camera.model}`:'');
     const linked=s.camera.connected && s.camera.controlReady;
     el('camBadge').className='statusBadge '+(linked?'statusOnline':'statusOffline');
     el('camBadge').textContent=linked?'Camera connected':'Camera disconnected';
     el('osdLive').textContent=osdPreview(s.camera);
+    el('mediaLive').textContent=s.settings.slot<3?'MEDIA '+(s.camera.connected && s.camera.mediaRemaining?s.camera.mediaRemaining:'--'):'Not sent: saved status slot is the last slot.';
     el('mspSummary').textContent=s.msp.connected?`MSP connected | API ${s.msp.api} | last RC response ${s.msp.responseMs} ms`:'MSP offline - check UART wiring and Betaflight Ports';
     el('mspStats').textContent=`Responses: ${s.msp.responses} | Timeouts: ${s.msp.timeouts} | Invalid frames: ${s.msp.invalidFrames}`;
-    el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;el('slot').value=s.settings.slot;
+    el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;
     drawChannels(s);
   }catch(e){el('status').textContent='Status error: '+e.message;el('mspSummary').textContent='ESP web API unavailable'}
 }
@@ -165,7 +173,6 @@ async function sendPin(){const v=el('pinval').value.trim();if(!/^\d{6}$/.test(v)
 async function forget(){await api('/api/forget');refresh()}
 async function rec(v){await api('/api/record?on='+v);setTimeout(refresh,250)}
 async function saveMapping(){await api(`/api/saveMapping?ch=${el('ch').value}&thr=${el('thr').value}&high=${el('high').value}`);el('saveMsg').textContent='Saved';setTimeout(()=>el('saveMsg').textContent='',1200);refresh()}
-async function saveOsd(){await api('/api/saveOsd?slot='+el('slot').value);refresh()}
 async function testosd(){await api('/api/osdtest')}
 async function wifiOff(){try{await api('/api/wifioff');}catch(e){} }
 
@@ -236,7 +243,7 @@ void WebUi::routes(){
     server.on("/",HTTP_GET,[this](){server.send_P(200,"text/html",PAGE);});
     server.on("/api/wifioff",HTTP_GET,[this](){ server.send(200,"application/json","{\"ok\":true}"); stopRequested=true; stopAtMs=millis()+250; });
     server.on("/api/connectionLog",HTTP_GET,[this](){
-        String report="FPVCineCam32 v0.10.13 AUTO RECONNECT\nCamera: "+s.cameraSystem+"\n";
+        String report="FPVCineCam32 v0.10.11-r1 BASELINE UI + LOGS\nCamera: "+s.cameraSystem+"\n";
         report += cam.connectionLog();
         report += "\nCurrent diagnostics snapshot:\n";
         report += statusJson();

@@ -1,20 +1,12 @@
-# v0.10.13 AUTO RECONNECT — one recovery test
+# v0.10.11-r1 BASELINE UI + LOGS — focused check
 
-Flash from the FPVCineCam32 page without erasing settings. Do not clear pairing.
-Keep the TX16S record switch at STOP.
+Flash without erasing settings to check the existing saved pairing. Keep the TX16S record switch at STOP during boot and camera switching.
 
-1. With the camera on, boot the ESP and confirm normal saved-camera reconnection.
-2. Leave the ESP powered and connected to setup Wi-Fi. Turn only the camera off
-   for 20 seconds so at least one automatic attempt can time out.
-3. Turn the camera on with Bluetooth enabled. Do not press Scan or Connect.
-   Allow up to 30 seconds for reconnection. It should not require another PIN.
-4. Copy connection log before rebooting. Look for RECONNECT retry scheduled after
-   failed automatic attempt, then a later successful connection. Paste the log here.
-5. Once connected, do one TX16S REC -> STOP cycle. Confirm REC/STBY and MEDIA display,
-   live MSP channels and responsive setup Wi-Fi. Disable Wi-Fi and repeat REC -> STOP.
+1. Join setup Wi-Fi. Confirm v0.10.11-r1, quick Wi-Fi access, and saved Blackmagic connection. Copy the connection log before rebooting if it fails; do not clear pairing immediately.
+2. Confirm live RC channels and saved mapping. Use the TX16S switch for one REC -> STOP cycle; check camera action, REC/STBY and MEDIA time on supported goggles. Compare remaining time with the camera's active media.
+3. Choose GoPro, Save and reboot. Follow the reconnect/reload guidance. Confirm GoPro remains a placeholder and MSP still responds. Choose Blackmagic again; confirm the saved connection returns.
+4. Disable Wi-Fi and repeat one RC REC -> STOP cycle. Reboot to restore setup Wi-Fi. The unchanged 90-second no-client shutdown can be checked on a later unattended boot.
 
-If it does not recover, copy the log before attempting a manual connection or reboot.
-No multi-camera, media-slot or timecode investigation is part of this test.
+Use Copy connection log if any step fails and report the step. Fresh pairing and repeated power-cycle stress tests are not required for this first baseline check. Hardware behavior remains unverified until tested on the device.
 
-Rollback: v0.10.12 at e8024f9. Known-good fallback: v0.10.6 at 6b29b3a.
-Preserve NVS when reflashing to retain settings/bonds.
+Rollback: original v0.10.11 source and firmware at `5197f0e`; known-good v0.10.6 at `6b29b3a`. Retain NVS when preserving bonds/settings.
