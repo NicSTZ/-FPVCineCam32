@@ -1,15 +1,31 @@
-# FPVCineCam32 v0.10.10 ACTIVE MEDIA FIX
+# FPVCineCam32 v0.10.11 CAMERA SELECTION
 
-Targeted correction on top of v0.10.9.
+Development candidate: select Blackmagic or GoPro in setup Wi-Fi, save, and restart.
+Only the selected backend is constructed at boot. Blackmagic remains the default
+for existing installations and unknown stored selections.
 
-## Change
+## Scope
 
-- Corrects the 10:1 receive decoder to accept camera-originated operation `2` telemetry as well as operation `0` control-state packets.
-- Keeps the proven Pocket 4K active-media mapping: flag `0x20` = slot 1, `0x40` = slot 2, and captured Pocket 4K extension `0x10` = slot 3 / USB.
-- Active slot selects the matching decoded 9:2 remaining-time value. A zero active-media mask clears the display to `MEDIA --`.
+- Blackmagic retains the v0.10.10 BLE, REC/STOP and active-media implementation.
+- GoPro is a selectable placeholder: no BLE, connection, recording or telemetry yet.
+- Shared RC mapping, GPIO6 RX / GPIO7 TX at 115200, MSP custom text and 90-second
+  setup Wi-Fi behavior are preserved.
+- Switching is rejected while the camera reports recording or requests a PIN.
+- Selection is stored separately from camera targets. Existing Blackmagic
+  `camaddr`/`camtype` keys are retained; GoPro reserves `gpaddr`/`gptype`.
+- The old v0.11 GoPro/DJI experimental drivers remain excluded from the build.
 
-## Deliberately unchanged
+## Rollback
 
-BLE connection/pairing, REC/STOP writes, Wi-Fi behavior, MSP/OSD, RC mapping, GPIO6/7, and 9:2 media-time decoding are unchanged from v0.10.9.
+Previous candidate, including firmware: v0.10.10 at `17011be8a2d28f4a8f1a85cec4b720ee9f7c2aa2`.
+Documented known-good fallback, including firmware: v0.10.6 at `6b29b3a`.
+Reflash without erasing NVS to retain the saved Blackmagic pairing/settings.
+Old firmware ignores the new camera-selection key and boots Blackmagic.
 
-Known-good fallback remains **v0.10.6 MEDIA REMAINING**.
+## Display compatibility
+
+User testing confirms custom text on O3/O4 with Goggles V2. Do not rely on
+arbitrary custom text on Vista/original Air Unit with Goggles V1/V2; normal OSD
+working without custom text does not demonstrate a broken ESP-to-FC MSP link.
+
+See TEST_PLAN.md for the short hardware regression procedure.

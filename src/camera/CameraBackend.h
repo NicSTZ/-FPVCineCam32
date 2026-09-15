@@ -28,6 +28,7 @@ struct CameraState {
 class ICameraBackend {
 public:
     virtual ~ICameraBackend() = default;
+    virtual void setSavedTarget(const String& address, uint8_t type) = 0;
     virtual void begin() = 0;
     virtual void loop() = 0;
     virtual bool startScan(String& jsonOut) = 0;

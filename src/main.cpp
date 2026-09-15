@@ -3,13 +3,14 @@
 #include "config/Settings.h"
 #include "msp/MspClient.h"
 #include "camera/BlackmagicCamera.h"
+#include "camera/UnavailableCamera.h"
 #include "web/WebUi.h"
 
 HardwareSerial FcSerial(1);
 SettingsStore settingsStore;
 AppSettings settings;
 MspClient msp(FcSerial);
-BlackmagicCamera camera;
+ICameraBackend* camera = nullptr;
 WebUi* web = nullptr;
 
 static constexpr int ESP_RX_PIN = 6;
@@ -32,7 +33,7 @@ static void diagLog(const char* msg) {
 }
 
 static void diagLogState(const char* reason) {
-    const CameraState& c = camera.state();
+    const CameraState& c = camera->state();
     const wifi_mode_t mode = WiFi.getMode();
     Serial.printf("[%8lu ms] STATE %-12s wifiMode=%d apIP=%s stations=%u camConnected=%d controlReady=%d camStatus=\"%s\" heap=%u\n",
                   (unsigned long)millis(), reason, (int)mode,
@@ -51,16 +52,16 @@ static bool recordSwitchState(bool& valid) {
 }
 
 static String osdStatusText() {
-    const CameraState& c = camera.state();
+    const CameraState& c = camera->state();
     if (!c.connected) return "CAM OFFLINE";
-    if (camera.waitingForPasskey()) return "CAM ENTER PIN";
+    if (camera->waitingForPasskey()) return "CAM ENTER PIN";
     if (c.recording) return "REC";
     if (c.controlReady || c.ready || c.paired) return "STBY";
     return "CAM WAIT";
 }
 
 static String osdMediaText() {
-    const CameraState& c = camera.state();
+    const CameraState& c = camera->state();
     if (!c.connected) return "MEDIA --";
     if (c.mediaRemaining.length() && c.mediaRemaining != "--") return "MEDIA " + c.mediaRemaining;
     return "MEDIA --";
@@ -69,11 +70,14 @@ static String osdMediaText() {
 void setup() {
     Serial.begin(115200);
     delay(250);
-    diagLog("BOOT: FPVCineCam32 v0.10.10 ACTIVE MEDIA FIX");
+    diagLog("BOOT: FPVCineCam32 v0.10.11 CAMERA SELECTION");
     Serial.printf("[%8lu ms] resetReason=%d freeHeap=%u\n", (unsigned long)millis(), (int)esp_reset_reason(), (unsigned)ESP.getFreeHeap());
     diagLog("SETTINGS: begin");
     settingsStore.begin();
     settings = settingsStore.load();
+    if (settings.cameraSystem == "gopro") camera = new UnavailableCamera();
+    else camera = new BlackmagicCamera();
+    Serial.printf("CAMERA: selected %s\n", settings.cameraSystem.c_str());
     Serial.printf("[%8lu ms] SETTINGS: autoConnect=%d savedCamera=%s\n", (unsigned long)millis(), settings.autoConnect ? 1 : 0, settings.cameraAddress.c_str());
 
     // ESP32-C3 SuperMini hardware profile. Keep these fixed so wiring is predictable.
@@ -85,7 +89,7 @@ void setup() {
     // more predictable without changing the proven Blackmagic BLE control path.
     uint64_t mac = ESP.getEfuseMac();
     char ap[32]; snprintf(ap,sizeof(ap),"FPVCineCam32-%04X",(uint16_t)(mac&0xffff));
-    web = new WebUi(settings,settingsStore,camera,msp);
+    web = new WebUi(settings,settingsStore,*camera,msp);
     Serial.printf("[%8lu ms] WIFI: starting SoftAP %s\n", (unsigned long)millis(), ap);
     web->begin(ap);
     wifiStartedAt = millis();
@@ -93,14 +97,14 @@ void setup() {
     delay(750);
     diagLogState("AP +750ms");
 
-    diagLog("BLE: camera.begin");
-    camera.begin();
-    diagLog("BLE: initialized");
-    camera.setSavedTarget(settings.cameraAddress, settings.cameraAddressType);
+    diagLog("CAMERA: begin selected backend");
+    camera->begin();
+    diagLog(settings.cameraSystem == "blackmagic" ? "BLE: initialized" : "CAMERA: GoPro placeholder; BLE not started");
+    camera->setSavedTarget(settings.cameraAddress, settings.cameraAddressType);
 
     if (settings.autoConnect && settings.cameraAddress.length()) {
         diagLog("BLE: queue saved camera reconnect");
-        camera.connectTo(settings.cameraAddress,settings.cameraAddressType);
+        camera->connectTo(settings.cameraAddress,settings.cameraAddressType);
     } else {
         diagLog("BLE: no saved auto-connect target");
     }
@@ -110,13 +114,13 @@ void setup() {
 
 void loop() {
     msp.loop();
-    camera.loop();
+    camera->loop();
     if(web) web->loop();
 
     const uint32_t now=millis();
 
     // Diagnostic-only logging. No control behavior is changed from v0.10.
-    const CameraState& diagCam = camera.state();
+    const CameraState& diagCam = camera->state();
     const wifi_mode_t diagMode = WiFi.getMode();
     if (diagCam.connected != lastDiagCamConnected || diagCam.controlReady != lastDiagControlReady || diagMode != lastDiagWifiMode) {
         lastDiagCamConnected = diagCam.connected;
@@ -133,7 +137,7 @@ void loop() {
 
     bool mappingValid = false;
     const bool desiredRecordState = recordSwitchState(mappingValid);
-    const CameraState& c = camera.state();
+    const CameraState& c = camera->state();
 
     // When the camera control link comes back, re-apply the physical switch position once.
     // This avoids losing a REC/STOP state across camera reconnect/authentication.
@@ -144,7 +148,7 @@ void loop() {
         const bool changed = !recordMapInitialized || desiredRecordState != lastAppliedRecordState;
         if (changed && now-lastRecordAttempt >= 300) {
             lastRecordAttempt = now;
-            if (camera.setRecording(desiredRecordState)) {
+            if (camera->setRecording(desiredRecordState)) {
                 lastAppliedRecordState = desiredRecordState;
                 recordMapInitialized = true;
             }
