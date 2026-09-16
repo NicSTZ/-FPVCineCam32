@@ -11,10 +11,11 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 </style></head><body>
 <h1>FPVCineCam32 <small>v0.10.10 ACTIVE MEDIA FIX</small></h1><div class=sub>Blackmagic + Betaflight MSP | active media remaining time</div>
 
-<div class=card><h3>Camera</h3>
+<div class=card><small class=muted>CAMERA SELECTOR TEST</small><h3>Camera</h3>
 <select id=selectedCamera aria-label="Camera"><option value=blackmagic>Blackmagic Pocket Cinema Camera 4K</option><option value=gopro>GoPro — Not implemented yet</option><option value=dji disabled>DJI — Coming soon</option></select>
 <button id=saveCamera onclick=saveCamera()>Save &amp; Restart</button>
 <p id=cameraSaveStatus class=muted role=status></p>
+<p id=restartHelp class=muted hidden>Reconnect to FPVCineCam32 Wi-Fi if required, then reopen this page.</p>
 <p id=cameraSupport class=muted hidden>GoPro — Not implemented yet</p>
 </div>
 <div class=card><h3>Blackmagic Pocket Cinema Camera</h3>
@@ -53,6 +54,27 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <script>
 const el=id=>document.getElementById(id);
 let cameraSelectionLoaded=false, cameraSavePending=false;
+function waitForRestart(expectedCamera){
+  const helpTimer=setTimeout(()=>{el('restartHelp').hidden=false;},12000);
+  async function probe(){
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),3000);
+    try{
+      const response=await fetch('/api/status?restart='+Date.now(),{cache:'no-store',signal:controller.signal});
+      if(response.ok){
+        const status=await response.json();
+        if(status.restartPending===false && status.selectedCamera===expectedCamera){
+          clearTimeout(helpTimer);
+          window.location.reload();
+          return;
+        }
+      }
+    }catch(e){} // Keep waiting while the ESP reboots or Wi-Fi reconnects.
+    finally{clearTimeout(timeout);}
+    setTimeout(probe,2000);
+  }
+  setTimeout(probe,1500);
+}
 async function saveCamera(){
   if(cameraSavePending) return;
   cameraSavePending=true;
@@ -65,6 +87,7 @@ async function saveCamera(){
     el('selectedCamera').disabled=true;
     el('blackmagicControls').disabled=true;
     clearInterval(refreshTimer);
+    waitForRestart(el('selectedCamera').value);
   }catch(e){cameraSavePending=false;el('saveCamera').disabled=false;el('cameraSaveStatus').textContent='Could not save camera: '+e.message;}
 }
 for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.textContent='CH'+i;el('ch').appendChild(o)}
@@ -146,7 +169,7 @@ void WebUi::stopWifi(){
 
 String WebUi::statusJson(){
     const CameraState& c=cam.state();
-    String j="{\"selectedCamera\":\""+savedCamera+"\",\"camera\":{";
+    String j="{\"selectedCamera\":\""+savedCamera+"\",\"restartPending\":"+String(restartRequested?"true":"false")+",\"camera\":{";
     j += "\"status\":\""+c.status+"\",\"model\":\""+c.model+"\",\"protocol\":\""+c.protocolVersion+"\",\"connected\":"+String(c.connected?"true":"false")+",\"paired\":"+String(c.paired?"true":"false")+",\"ready\":"+String(c.ready?"true":"false")+",\"controlReady\":"+String(c.controlReady?"true":"false")+",\"recording\":"+String(c.recording?"true":"false")+",\"timecode\":\""+c.timecode+"\",\"mediaRemaining\":\""+c.mediaRemaining+"\",\"activeMediaSlot\":"+String(c.activeMediaSlot)+",\"mediaSlots\":[\""+c.mediaSlotRemaining[0]+"\",\""+c.mediaSlotRemaining[1]+"\",\""+c.mediaSlotRemaining[2]+"\"],\"incomingSubscription\":\""+c.incomingSubscription+"\",\"incomingPackets\":"+String(c.incomingPackets)+",\"lastIncoming\":\""+c.lastIncoming+"\",\"waitingPin\":"+String(cam.waitingForPasskey()?"true":"false")+",\"lastCommand\":\""+c.lastCommand+"\",\"lastWrite\":\""+c.lastWrite+"\"},";
     j += "\"msp\":{\"connected\":"+String(mspClient.connected()?"true":"false")+",\"rcFresh\":"+String(mspClient.rcFresh()?"true":"false")+",\"api\":\""+String(mspClient.apiMajor())+"."+String(mspClient.apiMinor())+"\",\"responseMs\":"+String(mspClient.lastResponseMs())+",\"responses\":"+String(mspClient.responses())+",\"timeouts\":"+String(mspClient.timeouts())+",\"invalidFrames\":"+String(mspClient.invalidFrames())+",\"channels\":[";
     const size_t count = min(mspClient.rcCount(), (size_t)16);
