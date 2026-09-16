@@ -4,7 +4,7 @@
 #include <Preferences.h>
 #include <atomic>
 
-// Connection-only Open GoPro milestone. Independent of Blackmagic/ICameraBackend.
+// Open GoPro connection and manual shutter test controls. Independent of Blackmagic/ICameraBackend.
 class GoProCamera {
 public:
     GoProCamera();
@@ -15,12 +15,13 @@ public:
     bool forget(const String& id);
     bool connectSaved(const String& id);
     bool renameSaved(const String& id, const String& name);
+    bool setShutter(const String& id, bool on);
     bool busy() const { return working.load(); }
     String statusJson();
     String connectionLog();
 private:
     enum class State { Offline, Scanning, Connecting, Pairing, Connected, Ready, Failed };
-    enum class Job { Scan, Connect, Forget };
+    enum class Job { Scan, Connect, Forget, Rec, Stop };
     struct Found { char name[64]; char address[18]; uint8_t type; };
     struct SavedCamera {
         char address[18]{};
@@ -74,6 +75,8 @@ private:
     void runScan();
     void runConnect();
     void runForget();
+    void runShutter(bool on);
+    std::atomic<uint32_t> shutterResponses{0};
     void fail(const char* reason, bool retry=false);
     void log(const char* format, ...);
     void response(const uint8_t* data, size_t len);

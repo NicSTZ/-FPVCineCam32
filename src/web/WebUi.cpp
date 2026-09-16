@@ -8,6 +8,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;ma
 h1{margin-bottom:4px}.sub{color:#aaa;margin-bottom:16px}.card{background:#1c1c1e;border-radius:14px;padding:16px;margin:14px 0}h3{margin-top:0}
 button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radius:8px;border:1px solid #555;background:#29292c;color:#fff}button{cursor:pointer}.ok{color:#6ee787}.warn{color:#ffd866}.muted{color:#aaa}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ch{background:#252528;border-radius:8px;padding:8px;text-align:center}.ch b{display:block;font-size:13px;color:#aaa}.ch span{font-size:18px}.selected{outline:2px solid #6ee787}.statusBadge{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;font-weight:600;margin-bottom:8px}.statusBadge::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor}.statusOnline{color:#6ee787;background:#17351f}.statusOffline{color:#ff6b6b;background:#3a1b1b}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid{grid-template-columns:1fr}.channels{grid-template-columns:repeat(2,1fr)}}
 .wiring{width:100%;border-collapse:collapse;text-align:left}.wiring th,.wiring td{padding:10px 8px;border-bottom:1px solid #38383b}.wiring th{color:#aaa}
+.gpCamera{background:#242427;border:1px solid #39393d;border-radius:10px;padding:16px;margin:12px 0}.gpCamera h4{font-size:20px;margin:0 0 6px}.gpCamera p{margin:8px 0}.gpCamera .utility{margin-top:12px}.gpCamera .utility button{font-size:14px;color:#bbb}.gpCamera .primary{font-weight:600}
 </style></head><body>
 <h1>FPVCineCam32 <small>v0.10.10 ACTIVE MEDIA FIX</small></h1><div class=sub>Blackmagic + Betaflight MSP | active media remaining time</div>
 
@@ -104,12 +105,15 @@ async function saveCamera(){
 }
 for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.textContent='CH'+i;el('ch').appendChild(o)}
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
-let gpRequestPending=false, gpList='', gpCards='';
+let gpRequestPending=false, gpList='', gpCards='', gpScanRequested=false;
 function drawGoPro(g){
   el('gpStatus').textContent=g.status==='Scanning'?'Scanning...':g.status;
   el('gpStorageError').hidden=!g.savedListError;
   const blocked=g.busy || gpRequestPending || cameraSavePending;
   const discoveries=g.cameras.filter(c=>!c.saved);
+  if(gpScanRequested && !gpRequestPending && !g.busy){
+    el('gpMessage').textContent=discoveries.length?'':'No new GoPros found.';gpScanRequested=false;
+  }
   const list=JSON.stringify([discoveries,blocked]);
   if(list!==gpList){
     gpList=list;el('gpCameras').replaceChildren();
@@ -126,20 +130,27 @@ function drawGoPro(g){
   gpCards=cards;el('gpSaved').replaceChildren();
   if(!g.savedCameras.length)el('gpSaved').textContent='No saved GoPros yet.';
   g.savedCameras.forEach(c=>{
-    const card=document.createElement('div');card.className='card';
+    const card=document.createElement('div');card.className='gpCamera';
     function text(tag,value,css){const node=document.createElement(tag);node.textContent=value;if(css)node.className=css;card.appendChild(node);return node;}
     text('h4',c.friendlyName||c.reportedName||'GoPro');
     if(c.reportedName)text('p',c.reportedName,'muted');
-    text('p',c.connected?'CONNECTED':'DISCONNECTED','statusBadge '+(c.connected?'statusOnline':'statusOffline'));
-    function button(label,action,disabled=blocked){const node=text('button',label);node.disabled=disabled;node.onclick=action;}
+    function button(label,action,disabled=blocked){const node=text('button',label);node.disabled=disabled;node.onclick=action;return node;}
     if(c.connected){
+      text('p','CONNECTED','statusBadge statusOnline');
       text('p',c.controlReady?'Control ready':'Control not ready');
-    }else button('Connect',()=>gpAction('connectSaved',{id:c.id}));
-    button('Rename',()=>{
-      const name=prompt('Friendly camera name (up to 48 bytes; leave blank to use camera name)',c.friendlyName);
+      const controls=text('div','');
+      controls.appendChild(button('REC',()=>gpAction('shutter',{id:c.id,on:1}),blocked||!c.controlReady));
+      controls.appendChild(button('STOP',()=>gpAction('shutter',{id:c.id,on:0}),blocked||!c.controlReady));
+    }else{
+      button('Connect',()=>gpAction('connectSaved',{id:c.id})).className='primary';
+      text('p','DISCONNECTED','statusBadge statusOffline');
+    }
+    const utility=text('div','','utility');
+    utility.appendChild(button('Rename',()=>{
+      const name=prompt('Rename camera',c.friendlyName);
       if(name!==null)gpAction('rename',{id:c.id,name:name.trim()});
-    });
-    button('Forget',()=>{if(confirm('Forget '+(c.friendlyName||c.reportedName||c.address)+' and its pairing?'))gpAction('forget',{id:c.id});});
+    }));
+    utility.appendChild(button('Forget',()=>{if(confirm('Forget '+(c.friendlyName||c.reportedName||c.address)+' and its pairing?'))gpAction('forget',{id:c.id});}));
     el('gpSaved').appendChild(card);
   });
 }
@@ -148,12 +159,12 @@ async function gpAction(action,params={}){
   gpRequestPending=true;
   el('gpScan').disabled=true;
   el('gpCameras').replaceChildren();gpList='';
-  if(action==='scan')el('gpStatus').textContent='Scanning...';
+  if(action==='scan'){gpScanRequested=true;el('gpStatus').textContent='Scanning...';el('gpMessage').textContent='';}
   el('gpSaved').querySelectorAll('button').forEach(button=>button.disabled=true);
   try{
     await api('/api/gopro/'+action,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(params).toString()});
     el('gpMessage').textContent='';
-  }catch(e){el('gpMessage').textContent='Request failed: '+e.message;}
+  }catch(e){gpScanRequested=false;el('gpMessage').textContent='Request failed: '+e.message;}
   finally{gpRequestPending=false;gpCards='';refresh();}
 }
 async function copyGoProLog(){
@@ -272,6 +283,12 @@ bool WebUi::goProAvailable(){
 }
 
 void WebUi::routes(){
+    server.on("/api/gopro/shutter",HTTP_POST,[this](){
+        if(!goProAvailable())return;
+        const String on=server.arg("on");
+        const bool ok=(on=="0" || on=="1") && gp->setShutter(server.arg("id"),on=="1");
+        server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+    });
     server.on("/api/gopro/scan",HTTP_POST,[this](){
         if(!goProAvailable())return;
         const bool ok=gp->scan();server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");

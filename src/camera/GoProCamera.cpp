@@ -137,6 +137,8 @@ void GoProCamera::task(void* context) {
         case Job::Scan: self->runScan();break;
         case Job::Connect: if(self->prepareConnect())self->runConnect();break;
         case Job::Forget: self->runForget();break;
+        case Job::Rec: self->runShutter(true);break;
+        case Job::Stop: self->runShutter(false);break;
     }
     self->working=false;
     vTaskDelete(nullptr);
@@ -305,6 +307,37 @@ void GoProCamera::runConnect(){
     if(!client->isConnected() || !hardwareReady){fail("Hardware Info readiness timeout");return;}
     state=State::Ready;reconnect=false;retryAllowed=true;log("Control ready");
 }
+bool GoProCamera::setShutter(const String& id,bool on){
+    if(working || state!=State::Ready || !linked || !secured || !hardwareReady)return false;
+    char address[18];uint8_t type;
+    portENTER_CRITICAL(&mux);
+    memcpy(address,activeAddress,sizeof(address));type=activeType;
+    portEXIT_CRITICAL(&mux);
+    // Reject stale browser cards; never switch camera or change the saved target.
+    if(id!=String(type)+":"+address)return false;
+    log("%s command requested",on?"REC":"STOP");
+    return launch(on?Job::Rec:Job::Stop);
+}
+void GoProCamera::runShutter(bool on){
+    const char* label=on?"REC":"STOP";
+    if(state!=State::Ready || !linked || !secured || !hardwareReady || !client || !client->isConnected()){
+        log("%s rejected: control not ready",label);return;
+    }
+    auto* service=client->getService(SERVICE);
+    auto* command=service?service->getCharacteristic(gpUuid(0x72)):nullptr;
+    if(!command){log("%s write failed: command characteristic unavailable",label);return;}
+    // Official Set Shutter TLV: ID=01, length=01, on/off. 03 is packet payload length.
+    // https://gopro.github.io/OpenGoPro/docs/ble/control/#set-shutter
+    const uint8_t packet[]={0x03,0x01,0x01,static_cast<uint8_t>(on?1:0)};
+    const uint32_t before=shutterResponses.load();
+    if(!command->writeValue(packet,sizeof(packet),true)){
+        log("%s write failed error=%d",label,client->getLastError());return;
+    }
+    log("%s write succeeded",label);
+    for(unsigned i=0;i<30 && linked && shutterResponses==before;++i)vTaskDelay(pdMS_TO_TICKS(100));
+    if(shutterResponses==before)log("%s response not observed: %s",label,linked?"timeout":"disconnected");
+    // No automatic command retry, reconnect, or inferred recording state.
+}
 void GoProCamera::runForget(){
     const bool current=matches(removal,savedAddress,savedType);
     if(current){reconnect=false;retryAllowed=false;}
@@ -352,6 +385,12 @@ void GoProCamera::response(const uint8_t* data,size_t len){
     if(!responseRemaining && responseReceived>=2 && responsePrefix[0]==0x3C){
         log("Hardware Info response status=%u",responsePrefix[1]);
         if(responsePrefix[1]==0)hardwareReady=true;
+    }
+    if(!responseRemaining && responseReceived>=2 && responsePrefix[0]==0x01){
+        // Response has command ID and status, but no on/off echo or transaction ID.
+        // Keep this label generic so a delayed response cannot be mislabelled REC/STOP.
+        log("Shutter response status=%u (0=success 1=error 2=invalid parameter)",responsePrefix[1]);
+        ++shutterResponses;
     }
 }
 void GoProCamera::Callbacks::onConnect(NimBLEClient*){owner->linked=true;owner->log("BLE connected");}
