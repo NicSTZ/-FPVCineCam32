@@ -16,6 +16,7 @@ public:
         bool connecting=false, stateError=false, statusRegistered=false;
     };
     Snapshot snapshot();
+    String activeCameraId();
     GoProCamera();
     void begin(const String& blackmagicAddress);
     void loop();

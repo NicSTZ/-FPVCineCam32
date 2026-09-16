@@ -73,3 +73,13 @@ Use Betaflight Configurator **Custom Message 1** and **Custom Message 2**:
 The combined message fits the existing 31-character limit. Both use the unchanged MSP custom-text writer and existing 500 ms refresh; no alternating text, extra UART transport or GoPro RC mapping. Blackmagic retains its existing OSD formatting and configured slots. Supported DJI custom-message compatibility remains as documented above.
 
 References: [official status IDs](https://gopro.github.io/OpenGoPro/docs/ble/statuses/), [registration and change notifications](https://gopro.github.io/OpenGoPro/docs/ble/query/#register-for-status-value-updates), [packet/TLV format](https://gopro.github.io/OpenGoPro/docs/ble/protocol/data_protocol/), and [official SDK value types](https://github.com/gopro/OpenGoPro/blob/main/demos/python/sdk_wireless_camera_control/open_gopro/api/ble_statuses.py). No third-party source copied.
+
+## TX16 GoPro + truthful Blackmagic REC test (current build)
+
+Rollback: `050e667`. The existing RC channel, threshold, polarity and 300 ms minimum command interval now drive the selected backend. Blackmagic calls its existing `setRecording`; GoPro calls its existing active-ID-checked `setShutter`. A switch edge or newly ready control link applies the position once. Switching saved GoPros reapplies the position to the new active camera. No continuous correction against telemetry is performed: a physical camera shutter change remains authoritative until the mapped switch changes again.
+
+GoPro camera-reported seconds are unchanged. Web UI and Custom Message 2 now use `hours = seconds / 3600`, `minutes = (seconds % 3600) / 60`, formatted `Xh:XX`: 8929 → `2h:28`, 7140 → `1h:59`, 3599 → `0h:59`. Example OSD: `BAT 36% SD 2h:28`; unknown fields remain `--`.
+
+Blackmagic outgoing REC/STOP write success no longer sets recording or its REC/ready label. The unchanged Incoming Camera Control decoder uses Media category 10, Transport Mode parameter 1, int8 `value[0]`: mode 2 is Record; Preview/Play are not recording. Existing operation 0/2 acceptance and all remaining-time/active-media decoding remain unchanged. No-media REC commands are still sent; only camera telemetry may assert REC. [Official Blackmagic Camera Control protocol](https://documents.blackmagicdesign.com/DeveloperManuals/BlackmagicCameraControl.pdf).
+
+Hardware check: use the mapped TX16 switch on each backend, verify a ready/reconnected GoPro receives the initial switch position once, compare `Xh:XX` in UI/goggles, then test Blackmagic REC with no media (must remain STBY) and with media (REC/STOP follows actual camera state). Flash without erasing to retain bonds/settings. This build remains software-validated until those physical checks pass.

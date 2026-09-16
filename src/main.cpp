@@ -22,6 +22,7 @@ static uint32_t lastRcRequest = 0, lastApiRequest = 0, lastOsdUpdate = 0, lastRe
 static bool recordMapInitialized = false;
 static bool lastAppliedRecordState = false;
 static bool lastControlReady = false;
+static String lastGoProRcTarget;
 static uint32_t wifiStartedAt = 0;
 static constexpr uint32_t WIFI_SETUP_WINDOW_MS = 90000;
 static uint32_t lastDiagLog = 0;
@@ -76,9 +77,14 @@ static String goProStatusText(const GoProCamera::Snapshot& c) {
     if(!c.controlReady || c.recording==GoProCamera::Recording::Unknown) return "CAM ERROR";
     return c.recording==GoProCamera::Recording::Recording ? "CAM REC" : "CAM READY";
 }
+static String goProTimeText(uint32_t seconds) {
+    char text[24];
+    snprintf(text,sizeof(text),"%luh:%02lu",(unsigned long)(seconds/3600),(unsigned long)((seconds%3600)/60));
+    return String(text);
+}
 static String goProMediaText(const GoProCamera::Snapshot& c) {
     const String battery=c.batteryPercent>=0?String(c.batteryPercent)+"%":String("--");
-    const String media=c.mediaKnown?String((unsigned long)(c.remainingSeconds/60))+"m":String("--");
+    const String media=c.mediaKnown?goProTimeText(c.remainingSeconds):String("--");
     return "BAT "+battery+" SD "+media;
 }
 
@@ -158,14 +164,21 @@ void loop() {
 
     // When the camera control link comes back, re-apply the physical switch position once.
     // This avoids losing a REC/STOP state across camera reconnect/authentication.
-    if (c.controlReady && !lastControlReady) recordMapInitialized = false;
-    lastControlReady = c.controlReady;
+    const bool useGoPro = settings.selectedCamera == "gopro" && gopro;
+    const bool controlReady = useGoPro ? gopro->snapshot().controlReady : c.controlReady;
+    const String goProTarget = useGoPro ? gopro->activeCameraId() : String("");
+    if (controlReady && (!lastControlReady || (useGoPro && goProTarget != lastGoProRcTarget))) recordMapInitialized = false;
+    lastControlReady = controlReady;
+    lastGoProRcTarget = goProTarget;
 
-    if (settings.selectedCamera == "blackmagic" && mappingValid && c.controlReady) {
+    if ((settings.selectedCamera == "blackmagic" || useGoPro) && mappingValid && controlReady) {
         const bool changed = !recordMapInitialized || desiredRecordState != lastAppliedRecordState;
         if (changed && now-lastRecordAttempt >= 300) {
             lastRecordAttempt = now;
-            if (camera.setRecording(desiredRecordState)) {
+            const bool accepted = useGoPro ? gopro->setShutter(goProTarget, desiredRecordState)
+                                          : camera.setRecording(desiredRecordState);
+            if (accepted) {
+                if (useGoPro) diagLog(desiredRecordState ? "RC -> GoPro REC" : "RC -> GoPro STOP");
                 lastAppliedRecordState = desiredRecordState;
                 recordMapInitialized = true;
             }

@@ -10,7 +10,7 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 .wiring{width:100%;border-collapse:collapse;text-align:left}.wiring th,.wiring td{padding:10px 8px;border-bottom:1px solid #38383b}.wiring th{color:#aaa}
 .gpCamera{background:#242427;border:1px solid #39393d;border-radius:10px;padding:16px;margin:12px 0}.gpCamera h4{font-size:20px;margin:0 0 6px}.gpCamera p{margin:8px 0}.gpCamera .utility{margin-top:12px}.gpCamera .utility button{font-size:14px;color:#bbb}.gpCamera .primary{font-weight:600}
 </style></head><body>
-<h1>FPVCineCam32 <small>v0.10.10 ACTIVE MEDIA FIX</small></h1><div class=sub>Blackmagic + Betaflight MSP | active media remaining time</div>
+<h1>FPVCineCam32</h1><div class=sub>Blackmagic + Betaflight MSP | active media remaining time</div>
 
 <div class=card><h3>Camera</h3>
 <select id=selectedCamera aria-label="Camera"><option value=blackmagic>Blackmagic Pocket Cinema Camera 4K</option><option value=gopro>GoPro</option><option value=dji disabled>DJI — Coming soon</option></select>
@@ -107,6 +107,9 @@ async function saveCamera(){
 for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.textContent='CH'+i;el('ch').appendChild(o)}
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
 let gpRequestPending=false, gpList='', gpCards='', gpScanRequested=false;
+function goProTimeText(seconds){
+  return Math.floor(seconds/3600)+'h:'+String(Math.floor((seconds%3600)/60)).padStart(2,'0');
+}
 function drawGoPro(g){
   el('gpStatus').textContent=g.status==='Scanning'?'':g.status;
   if(g.status==='Scanning')el('gpScanStatus').textContent='Scanning...';
@@ -141,7 +144,7 @@ function drawGoPro(g){
       text('p','CONNECTED','statusBadge statusOnline');
       text('p',c.recordingState==='recording'?'REC':c.recordingState==='standby'?'STBY':'--',c.recordingState==='recording'?'warn':'muted');
       text('p','Battery '+(c.batteryPercent>=0?c.batteryPercent+'%':'--'));
-      text('p','Card '+(c.remainingSeconds!=null?Math.floor(c.remainingSeconds/60)+' min':'--'));
+      text('p','Card '+(c.remainingSeconds!=null?goProTimeText(c.remainingSeconds):'--'));
       const controls=text('div','');
       controls.appendChild(button('REC',()=>gpAction('shutter',{id:c.id,on:1}),blocked||!c.controlReady));
       controls.appendChild(button('STOP',()=>gpAction('shutter',{id:c.id,on:0}),blocked||!c.controlReady));

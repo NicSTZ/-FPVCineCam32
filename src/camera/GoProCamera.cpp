@@ -379,6 +379,11 @@ void GoProCamera::runForget(){
 void GoProCamera::clearStatus(){
     portENTER_CRITICAL(&mux);telemetry=Snapshot{};statusPending=false;portEXIT_CRITICAL(&mux);
 }
+String GoProCamera::activeCameraId(){
+    char address[18];uint8_t type;
+    portENTER_CRITICAL(&mux);memcpy(address,activeAddress,sizeof(address));type=activeType;portEXIT_CRITICAL(&mux);
+    return address[0]?String(type)+":"+address:String("");
+}
 GoProCamera::Snapshot GoProCamera::snapshot(){
     Snapshot copy;
     portENTER_CRITICAL(&mux);copy=telemetry;const bool pending=statusPending;portEXIT_CRITICAL(&mux);

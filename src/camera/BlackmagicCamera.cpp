@@ -367,12 +367,9 @@ bool BlackmagicCamera::setRecording(bool on) {
     const uint8_t* packet = on ? recPacket : stopPacket;
     camState.lastCommand = on ? "REC" : "STOP";
     bool ok = writeControlPacket(packet, 12);
-    if (ok) {
-        // Make the OSD react immediately to the command we just successfully sent.
-        // Incoming camera notifications can subsequently confirm/correct this state.
-        camState.recording = on;
-        camState.status = on ? "REC" : "BMD READY";
-    } else {
+    // Transmission success is not recording confirmation. Incoming Media / Transport
+    // Mode (10.1) remains the authoritative REC/STBY source, including no-media cases.
+    if (!ok) {
         camState.status = on ? "REC WRITE FAIL" : "STOP WRITE FAIL";
     }
     return ok;
