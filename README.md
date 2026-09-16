@@ -54,3 +54,22 @@ Short hardware check (flash without erasing):
 3. Forget that GoPro, verify the card disappears, then scan/add it and confirm first pairing reaches Control ready. If a second GoPro is available, forget its offline card while the first is connected; only that card/bond should disappear.
 
 Host simulations and source comparisons cover state/storage and unchanged protected code; these do not replace the physical checks above.
+
+## GoPro state + OSD test (current development build)
+
+Rollback: hardware-proven REC/STOP build `c2784fe`. This extends the earlier connection/card milestones above; manual REC/STOP remains available, and state/OSD awaits physical validation.
+
+Only three official statuses are registered through GP-0076: Encoding **10 / 0x0A** (one-byte boolean), Internal Battery Percentage **70 / 0x46** (one byte, 0–100), and Remaining Video Time **35 / 0x23** (four-byte big-endian seconds). Request `04 53 0A 46 23` registers these values. GP-0077 response `0x53` supplies initial values; notifications `0x93` supply changes. Registration is repeated once per BLE connection after the existing Hardware Info readiness check. There is no periodic status polling or bitrate-based time estimate.
+
+Recording is unknown, standby or recording, based exclusively on Encoding; shutter acknowledgements never set it. Test in video mode: GoPro defines Encoding as capture activity, and remaining time according to current camera settings. No mode query/change is added. Battery outside 0–100 is unknown. Remaining time is stored in seconds and displayed as whole minutes rounded down (less than a minute displays `0 min`). Disconnect/switch clears the values. Failed, malformed, or timed-out status registration leaves unknown values and a diagnostic error without changing the working BLE reconnect or shutter paths.
+
+### GoPro OSD mapping
+
+Use Betaflight Configurator **Custom Message 1** and **Custom Message 2**:
+
+- **Custom Message 1**, internal slot **0**: `CAM OFF`, `CAM CONNECT`, `CAM READY`, `CAM REC`, or `CAM ERROR`. READY requires control readiness and authoritative standby; unknown/error state is never presented as READY. Registration pending is CONNECT; a failed status path is ERROR.
+- **Custom Message 2**, internal slot **1**: `BAT 82% SD 47m`, with unknowns shown as `BAT -- SD --` (each field can be independently unknown).
+
+The combined message fits the existing 31-character limit. Both use the unchanged MSP custom-text writer and existing 500 ms refresh; no alternating text, extra UART transport or GoPro RC mapping. Blackmagic retains its existing OSD formatting and configured slots. Supported DJI custom-message compatibility remains as documented above.
+
+References: [official status IDs](https://gopro.github.io/OpenGoPro/docs/ble/statuses/), [registration and change notifications](https://gopro.github.io/OpenGoPro/docs/ble/query/#register-for-status-value-updates), [packet/TLV format](https://gopro.github.io/OpenGoPro/docs/ble/protocol/data_protocol/), and [official SDK value types](https://github.com/gopro/OpenGoPro/blob/main/demos/python/sdk_wireless_camera_control/open_gopro/api/ble_statuses.py). No third-party source copied.

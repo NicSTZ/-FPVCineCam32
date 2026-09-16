@@ -7,6 +7,15 @@
 // Open GoPro connection and manual shutter test controls. Independent of Blackmagic/ICameraBackend.
 class GoProCamera {
 public:
+    enum class Recording { Unknown, Standby, Recording };
+    struct Snapshot {
+        Recording recording=Recording::Unknown;
+        int batteryPercent=-1;
+        uint32_t remainingSeconds=0;
+        bool mediaKnown=false, connected=false, controlReady=false;
+        bool connecting=false, stateError=false, statusRegistered=false;
+    };
+    Snapshot snapshot();
     GoProCamera();
     void begin(const String& blackmagicAddress);
     void loop();
@@ -80,6 +89,19 @@ private:
     void fail(const char* reason, bool retry=false);
     void log(const char* format, ...);
     void response(const uint8_t* data, size_t len);
+    void startStatus(NimBLERemoteCharacteristic* query);
+    void queryResponse(const uint8_t* data, size_t len);
+    void decodeStatus(const uint8_t* data, size_t len);
+    void statusFault(const char* reason, const uint8_t* data=nullptr, size_t len=0);
+    void clearStatus();
+    Snapshot telemetry;
+    bool statusPending=false;
+    uint32_t statusDeadline=0, lastStatusFault=0;
+    bool statusFaultLogged=false;
+    uint8_t queryBuffer[64]{}, querySequence=0;
+    size_t queryRemaining=0, queryReceived=0;
+    std::atomic<bool> queryFragmentPending{false};
+    std::atomic<uint32_t> queryFragmentAt{0};
     static String escape(const char* value);
     class Callbacks : public NimBLEClientCallbacks {
     public:

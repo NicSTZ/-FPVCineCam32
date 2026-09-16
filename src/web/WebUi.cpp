@@ -20,13 +20,14 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 
 </div>
 <div class=card id=goproCard hidden><h3>GoPro</h3>
-<p id=gpStatus role=status>Offline</p>
-<p class=muted>For first pairing, open Connect Device / GoPro Quik App on the camera.</p>
-<h4>Saved cameras</h4><div id=gpSaved></div>
-<p id=gpStorageError class=warn hidden>Saved camera list could not be read or saved. Copy the log before restarting.</p>
-<button id=gpScan onclick=gpAction('scan')>Add GoPro</button>
+<button id=gpScan onclick=gpAction('scan')>Add camera</button>
+<span id=gpScanStatus class=muted role=status></span>
 <div id=gpCameras aria-label="Discovered GoPro cameras"></div>
 <p id=gpMessage class=muted role=status></p>
+<p class=muted>For first pairing, open Connect Device / GoPro Quik App on the camera.</p>
+<p id=gpStatus role=status>Offline</p>
+<h4>Saved cameras</h4><div id=gpSaved></div>
+<p id=gpStorageError class=warn hidden>Saved camera list could not be read or saved. Copy the log before restarting.</p>
 <button id=gpCopy onclick=copyGoProLog()>Copy log</button>
 <textarea id=gpLog readonly aria-label="GoPro connection log" hidden style="box-sizing:border-box;width:100%;height:180px;background:#111;color:#eee"></textarea>
 <p id=gpCopyStatus class=muted role=status></p>
@@ -107,12 +108,13 @@ for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.text
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
 let gpRequestPending=false, gpList='', gpCards='', gpScanRequested=false;
 function drawGoPro(g){
-  el('gpStatus').textContent=g.status==='Scanning'?'Scanning...':g.status;
+  el('gpStatus').textContent=g.status==='Scanning'?'':g.status;
+  if(g.status==='Scanning')el('gpScanStatus').textContent='Scanning...';
   el('gpStorageError').hidden=!g.savedListError;
   const blocked=g.busy || gpRequestPending || cameraSavePending;
   const discoveries=g.cameras.filter(c=>!c.saved);
   if(gpScanRequested && !gpRequestPending && !g.busy){
-    el('gpMessage').textContent=discoveries.length?'':'No new GoPros found.';gpScanRequested=false;
+    el('gpScanStatus').textContent=discoveries.length?'':'No new GoPros found.';gpScanRequested=false;
   }
   const list=JSON.stringify([discoveries,blocked]);
   if(list!==gpList){
@@ -137,7 +139,9 @@ function drawGoPro(g){
     function button(label,action,disabled=blocked){const node=text('button',label);node.disabled=disabled;node.onclick=action;return node;}
     if(c.connected){
       text('p','CONNECTED','statusBadge statusOnline');
-      text('p',c.controlReady?'Control ready':'Control not ready');
+      text('p',c.recordingState==='recording'?'REC':c.recordingState==='standby'?'STBY':'--',c.recordingState==='recording'?'warn':'muted');
+      text('p','Battery '+(c.batteryPercent>=0?c.batteryPercent+'%':'--'));
+      text('p','Card '+(c.remainingSeconds!=null?Math.floor(c.remainingSeconds/60)+' min':'--'));
       const controls=text('div','');
       controls.appendChild(button('REC',()=>gpAction('shutter',{id:c.id,on:1}),blocked||!c.controlReady));
       controls.appendChild(button('STOP',()=>gpAction('shutter',{id:c.id,on:0}),blocked||!c.controlReady));
@@ -159,12 +163,12 @@ async function gpAction(action,params={}){
   gpRequestPending=true;
   el('gpScan').disabled=true;
   el('gpCameras').replaceChildren();gpList='';
-  if(action==='scan'){gpScanRequested=true;el('gpStatus').textContent='Scanning...';el('gpMessage').textContent='';}
+  if(action==='scan'){gpScanRequested=true;el('gpScanStatus').textContent='Scanning...';el('gpMessage').textContent='';}
   el('gpSaved').querySelectorAll('button').forEach(button=>button.disabled=true);
   try{
     await api('/api/gopro/'+action,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(params).toString()});
     el('gpMessage').textContent='';
-  }catch(e){gpScanRequested=false;el('gpMessage').textContent='Request failed: '+e.message;}
+  }catch(e){if(action==='scan')el('gpScanStatus').textContent='';gpScanRequested=false;el('gpMessage').textContent='Request failed: '+e.message;}
   finally{gpRequestPending=false;gpCards='';refresh();}
 }
 async function copyGoProLog(){

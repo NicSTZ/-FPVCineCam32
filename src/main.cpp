@@ -68,6 +68,20 @@ static String osdMediaText() {
     return "MEDIA --";
 }
 
+// Presentation only: GoPro packets are decoded in GoProCamera, never here.
+static String goProStatusText(const GoProCamera::Snapshot& c) {
+    if(c.stateError) return "CAM ERROR";
+    if(c.connecting) return "CAM CONNECT";
+    if(!c.connected) return "CAM OFF";
+    if(!c.controlReady || c.recording==GoProCamera::Recording::Unknown) return "CAM ERROR";
+    return c.recording==GoProCamera::Recording::Recording ? "CAM REC" : "CAM READY";
+}
+static String goProMediaText(const GoProCamera::Snapshot& c) {
+    const String battery=c.batteryPercent>=0?String(c.batteryPercent)+"%":String("--");
+    const String media=c.mediaKnown?String((unsigned long)(c.remainingSeconds/60))+"m":String("--");
+    return "BAT "+battery+" SD "+media;
+}
+
 void setup() {
     Serial.begin(115200);
     delay(250);
@@ -160,10 +174,17 @@ void loop() {
 
     if(now-lastOsdUpdate>=500){
         lastOsdUpdate=now;
+        if(gopro){
+            const auto state=gopro->snapshot();
+            // Configurator Custom Message 1 and 2 use internal slots 0 and 1.
+            msp.setCustomText(0,goProStatusText(state));
+            msp.setCustomText(1,goProMediaText(state));
+        }else{
         msp.setCustomText(settings.osdSlot, osdStatusText());
         // The next Custom Message slot carries decoded Pocket 4K remaining
         // record duration from category 9 / parameter 2 telemetry.
         if (settings.osdSlot < 3) msp.setCustomText(settings.osdSlot + 1, osdMediaText());
+        }
     }
 
     // Setup Wi-Fi is temporary. If nobody joins the AP within 90 seconds,

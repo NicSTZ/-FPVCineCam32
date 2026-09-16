@@ -184,6 +184,13 @@ bool GoProCamera::renameSaved(const String& id,const String& name){
     working=false;return ok;
 }
 void GoProCamera::loop(){
+    bool timedOut=false;
+    portENTER_CRITICAL(&mux);
+    if(statusPending && (int32_t)(millis()-statusDeadline)>=0){statusPending=false;timedOut=true;}
+    portEXIT_CRITICAL(&mux);
+    if(timedOut)statusFault("registration timeout");
+    if(queryFragmentPending && millis()-queryFragmentAt.load()>=2000 && queryFragmentPending.exchange(false))
+        statusFault("fragment timeout");
     if(!working && reconnect && (int32_t)(millis()-retryAt.load())>=0){
         reconnect=false;
         if(savedAddress.length()){
@@ -232,6 +239,7 @@ void GoProCamera::fail(const char* reason,bool retry){
 }
 void GoProCamera::runConnect(){
     if(protectedAddress.equalsIgnoreCase(requested.address)){fail("Protected Blackmagic address");return;}
+    clearStatus();
     state=State::Connecting;hardwareReady=false;
     log("Connect attempt %s type=%u",requested.address,requested.type);
     if(savedAddress != requested.address){
@@ -287,9 +295,10 @@ void GoProCamera::runConnect(){
         if(!valid){fail("Required characteristic missing");return;}
     }
     for(unsigned i=1;i<6;i+=2){
-        const bool commandResponse=i==1;
-        bool ok=chars[i]->subscribe(true,[this,commandResponse](NimBLERemoteCharacteristic*,uint8_t* bytes,size_t length,bool){
+        const bool commandResponse=i==1, statusResponse=i==5;
+        bool ok=chars[i]->subscribe(true,[this,commandResponse,statusResponse](NimBLERemoteCharacteristic*,uint8_t* bytes,size_t length,bool){
             if(commandResponse)response(bytes,length);
+            if(statusResponse)queryResponse(bytes,length);
         });
         log("Subscription GP-%04X %s",0x72+i,ok?"success":"failure");
         if(!ok){fail("Required notification subscription failed");return;}
@@ -306,6 +315,7 @@ void GoProCamera::runConnect(){
     }
     if(!client->isConnected() || !hardwareReady){fail("Hardware Info readiness timeout");return;}
     state=State::Ready;reconnect=false;retryAllowed=true;log("Control ready");
+    startStatus(chars[4]);
 }
 bool GoProCamera::setShutter(const String& id,bool on){
     if(working || state!=State::Ready || !linked || !secured || !hardwareReady)return false;
@@ -364,6 +374,108 @@ void GoProCamera::runForget(){
     }
     log("Saved GoPro removed; other cameras and bonds untouched");
 }
+// Official Open GoPro: register statuses 10 (encoding), 70 (battery %),
+// 35 (remaining video seconds). 0x53 includes initial values; 0x93 pushes changes.
+void GoProCamera::clearStatus(){
+    portENTER_CRITICAL(&mux);telemetry=Snapshot{};statusPending=false;portEXIT_CRITICAL(&mux);
+}
+GoProCamera::Snapshot GoProCamera::snapshot(){
+    Snapshot copy;
+    portENTER_CRITICAL(&mux);copy=telemetry;const bool pending=statusPending;portEXIT_CRITICAL(&mux);
+    copy.connected=linked;copy.controlReady=linked && secured && hardwareReady;
+    const State current=state.load();
+    copy.connecting=current==State::Connecting || current==State::Pairing ||
+        current==State::Connected || (current==State::Failed && retryAllowed) || pending;
+    copy.stateError=copy.stateError || (current==State::Failed && !retryAllowed);
+    if(!copy.connected){copy.recording=Recording::Unknown;copy.batteryPercent=-1;copy.mediaKnown=false;}
+    return copy;
+}
+void GoProCamera::startStatus(NimBLERemoteCharacteristic* query){
+    // No writes to saved-camera state. Assembly is reset by the BLE disconnect callback.
+    portENTER_CRITICAL(&mux);statusPending=true;statusDeadline=millis()+4000;portEXIT_CRITICAL(&mux);
+    const uint8_t request[]={0x04,0x53,0x0A,0x46,0x23};
+    log("Status registration requested: recording, battery, media");
+    if(!query->writeValue(request,sizeof(request),true))statusFault("registration write failed");
+}
+void GoProCamera::statusFault(const char* reason,const uint8_t* data,size_t len){
+    queryFragmentPending=false;
+    portENTER_CRITICAL(&mux);
+    telemetry.recording=Recording::Unknown;telemetry.batteryPercent=-1;telemetry.mediaKnown=false;
+    telemetry.stateError=true;telemetry.statusRegistered=false;statusPending=false;
+    const bool report=!statusFaultLogged || millis()-lastStatusFault>=10000;
+    if(report){lastStatusFault=millis();statusFaultLogged=true;}
+    portEXIT_CRITICAL(&mux);
+    if(report){
+        char prefix[25]{};
+        for(size_t i=0;i<len && i<8;++i)snprintf(prefix+i*3,4,"%02X ",data[i]);
+        log("Status error: %s len=%u %s",reason,(unsigned)len,prefix);
+    }
+}
+void GoProCamera::queryResponse(const uint8_t* data,size_t len){
+    if(!linked)return;
+    if(!len){statusFault("empty packet");return;}
+    size_t header=1;
+    if(data[0]&0x80){
+        if(!queryFragmentPending || !queryRemaining || (data[0]&15)!=querySequence){queryRemaining=0;statusFault("fragment sequence",data,len);return;}
+        querySequence=(querySequence+1)&15;
+    }else{
+        const unsigned kind=(data[0]>>5)&3;
+        queryFragmentPending=false;
+        queryReceived=0;querySequence=0;queryRemaining=0;
+        if(kind==0)queryRemaining=data[0]&31;
+        else if(kind==1 && len>=2){header=2;queryRemaining=((data[0]&31)<<8)|data[1];}
+        else if(kind==2 && len>=3){header=3;queryRemaining=(data[1]<<8)|data[2];}
+        else{statusFault("packet header",data,len);return;}
+        if(queryRemaining>sizeof(queryBuffer)){queryRemaining=0;statusFault("message too long",data,len);return;}
+    }
+    const size_t count=len-header;
+    if(count>queryRemaining || queryReceived+count>sizeof(queryBuffer)){
+        queryRemaining=0;statusFault("packet length",data,len);return;
+    }
+    memcpy(queryBuffer+queryReceived,data+header,count);queryReceived+=count;queryRemaining-=count;
+    if(!queryRemaining){queryFragmentPending=false;decodeStatus(queryBuffer,queryReceived);}
+    else{queryFragmentAt=millis();queryFragmentPending=true;}
+}
+void GoProCamera::decodeStatus(const uint8_t* data,size_t len){
+    if(len<2){statusFault("short response",data,len);return;}
+    if(data[0]!=0x53 && data[0]!=0x93){statusFault("unexpected query ID",data,len);return;}
+    if(data[1]!=0){statusFault("query response status nonzero",data,len);return;}
+    // Validate the complete TLV message before changing the visible state.
+    Snapshot next;portENTER_CRITICAL(&mux);next=telemetry;portEXIT_CRITICAL(&mux);
+    bool recSeen=false,batterySeen=false,mediaSeen=false;
+    for(size_t i=2;i<len;){
+        if(len-i<2){statusFault("truncated TLV",data,len);return;}
+        const uint8_t id=data[i++],size=data[i++];
+        if(size>len-i){statusFault("truncated value",data,len);return;}
+        if(id==10){
+            if(size!=1 || data[i]>1){statusFault("encoding value",data,len);return;}
+            next.recording=data[i]?Recording::Recording:Recording::Standby;recSeen=true;
+        }else if(id==70){
+            if(size!=1){statusFault("battery length",data,len);return;}
+            next.batteryPercent=data[i]<=100?data[i]:-1;batterySeen=true;
+        }else if(id==35){
+            if(size!=4){statusFault("media length",data,len);return;}
+            next.remainingSeconds=((uint32_t)data[i]<<24)|((uint32_t)data[i+1]<<16)|((uint32_t)data[i+2]<<8)|data[i+3];
+            next.mediaKnown=true;mediaSeen=true;
+        }else{statusFault("unrequested status ID",data,len);return;}
+        i+=size;
+    }
+    if(data[0]==0x53 && !(recSeen && batterySeen && mediaSeen)){
+        statusFault("incomplete registration",data,len);return;
+    }
+    Snapshot previous;
+    portENTER_CRITICAL(&mux);
+    previous=telemetry;
+    if(data[0]==0x53){next.statusRegistered=true;statusPending=false;}
+    next.stateError=!next.statusRegistered;
+    if(linked)telemetry=next;
+    portEXIT_CRITICAL(&mux);
+    if(data[0]==0x53)log("Recording/battery/media status registration established");
+    if(recSeen && next.recording!=previous.recording)log("Recording state: %s",next.recording==Recording::Recording?"REC":"STBY");
+    if(batterySeen && (next.batteryPercent!=previous.batteryPercent || data[0]==0x53))log("Battery: %d%% (-1=unknown)",next.batteryPercent);
+    if(mediaSeen && (!previous.mediaKnown || next.remainingSeconds/60!=previous.remainingSeconds/60))
+        log("Media remaining: %lu min",(unsigned long)(next.remainingSeconds/60));
+}
 void GoProCamera::response(const uint8_t* data,size_t len){
     if(!len)return;
     size_t header=1;
@@ -396,6 +508,8 @@ void GoProCamera::response(const uint8_t* data,size_t len){
 void GoProCamera::Callbacks::onConnect(NimBLEClient*){owner->linked=true;owner->log("BLE connected");}
 void GoProCamera::Callbacks::onDisconnect(NimBLEClient*,int reason){
     owner->linked=false;owner->secured=false;owner->bonded=false;owner->hardwareReady=false;
+    owner->clearStatus();
+    owner->queryRemaining=owner->queryReceived=0;owner->queryFragmentPending=false;
     if(owner->state!=State::Failed)owner->state=State::Offline;
     owner->log("Disconnected reason=%d (0x%X)",reason,reason);
     if(owner->retryAllowed){owner->retryAt=millis()+5000;owner->reconnect=true;}
@@ -436,6 +550,7 @@ String GoProCamera::escape(const char* value){
 String GoProCamera::statusJson(){
     static const char* names[]={"Offline","Scanning","Connecting","Pairing","Connected","Control ready","Connection failed"};
     String out="{\"status\":\""+String(names[(unsigned)state.load()])+"\",\"busy\":"+(working?String("true"):String("false"))+",\"connected\":"+(linked?String("true"):String("false"))+",\"bonded\":"+(bonded?String("true"):String("false"))+",\"encrypted\":"+(secured?String("true"):String("false"))+",\"cameras\":[";
+    const auto values=snapshot();
     const auto cards=savedSnapshot();
     char active[18];uint8_t type;
     portENTER_CRITICAL(&mux);memcpy(active,activeAddress,sizeof(active));type=activeType;portEXIT_CRITICAL(&mux);
@@ -454,7 +569,8 @@ String GoProCamera::statusJson(){
         const bool activeCard=matches(card,active,type), online=activeCard && connected;
         if(i)out+=',';
         out+="{\"id\":\""+savedId(card)+"\",\"address\":\""+String(card.address)+"\",\"reportedName\":\""+escape(card.reportedName)+"\",\"friendlyName\":\""+escape(card.friendlyName)+"\",\"connected\":"+(online?String("true"):String("false"));
-        out+=",\"bonded\":"+(online&&hasBond?String("true"):String("false"))+",\"encrypted\":"+(online&&encrypted?String("true"):String("false"))+",\"controlReady\":"+(online&&encrypted&&hardwareReady?String("true"):String("false"))+"}";
+        out+=",\"bonded\":"+(online&&hasBond?String("true"):String("false"))+",\"encrypted\":"+(online&&encrypted?String("true"):String("false"))+",\"controlReady\":"+(online&&encrypted&&hardwareReady?String("true"):String("false"));
+        out+=",\"recordingState\":\""+String(online?(values.recording==Recording::Recording?"recording":values.recording==Recording::Standby?"standby":"unknown"):"unknown")+"\",\"batteryPercent\":"+String(online?values.batteryPercent:-1)+",\"remainingSeconds\":"+(online&&values.mediaKnown?String((unsigned long)values.remainingSeconds):String("null"))+"}";
     }
-    return out+"],\"savedListError\":"+(savedListError?String("true"):String("false"))+"}";
+    return out+"],\"statusRegistered\":"+String(values.statusRegistered?"true":"false")+",\"stateError\":"+String(values.stateError?"true":"false")+",\"savedListError\":"+(savedListError?String("true"):String("false"))+"}";
 }
