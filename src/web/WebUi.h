@@ -8,7 +8,7 @@
 class WebUi {
 public:
     WebUi(AppSettings& settings, SettingsStore& store, BlackmagicCamera& camera, MspClient& msp)
-      : s(settings), prefs(store), cam(camera), mspClient(msp), server(80) {}
+      : s(settings), prefs(store), cam(camera), mspClient(msp), server(80), savedCamera(settings.selectedCamera) {}
     void begin(const String& apName);
     void loop();
     bool active() const { return running; }
@@ -17,6 +17,9 @@ private:
     AppSettings& s; SettingsStore& prefs; BlackmagicCamera& cam; MspClient& mspClient;
     WebServer server; bool running=false;
     bool stopRequested=false; uint32_t stopAtMs=0;
+    String savedCamera;
+    bool restartRequested=false; uint32_t restartAtMs=0;
+    bool cameraAvailable();
     void routes();
     String statusJson();
     static const char PAGE[] PROGMEM;

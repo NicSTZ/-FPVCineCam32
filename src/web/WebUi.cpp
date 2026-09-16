@@ -11,11 +11,19 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 </style></head><body>
 <h1>FPVCineCam32 <small>v0.10.10 ACTIVE MEDIA FIX</small></h1><div class=sub>Blackmagic + Betaflight MSP | active media remaining time</div>
 
+<div class=card><h3>Camera</h3>
+<select id=selectedCamera aria-label="Camera"><option value=blackmagic>Blackmagic Pocket Cinema Camera 4K</option><option value=gopro>GoPro — Not implemented yet</option><option value=dji disabled>DJI — Coming soon</option></select>
+<button id=saveCamera onclick=saveCamera()>Save &amp; Restart</button>
+<p id=cameraSaveStatus class=muted role=status></p>
+<p id=cameraSupport class=muted hidden>GoPro — Not implemented yet</p>
+</div>
 <div class=card><h3>Blackmagic Pocket Cinema Camera</h3>
+<fieldset id=blackmagicControls style="border:0;padding:0;margin:0">
 <div id=camBadge class="statusBadge statusOffline">Camera disconnected</div><div id=camSummary class=muted>Loading...</div>
 <div id=pin style="display:none"><p class=warn>Enter the 6-digit PIN shown on the BMPCC 4K:</p><input id=pinval inputmode=numeric maxlength=6 placeholder=123456><button onclick=sendPin()>Submit PIN</button></div>
 <p><button onclick=scan()>Scan for cameras</button><span id=cams></span></p>
 <p><button onclick="rec(1)">REC test</button><button onclick="rec(0)">STOP test</button><button onclick=forget()>Forget pairing</button></p>
+</fieldset>
 <hr style="border-color:#333">
 <h4>REC / STOP switch mapping</h4>
 <div class=grid>
@@ -44,6 +52,21 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 
 <script>
 const el=id=>document.getElementById(id);
+let cameraSelectionLoaded=false, cameraSavePending=false;
+async function saveCamera(){
+  if(cameraSavePending) return;
+  cameraSavePending=true;
+  el('saveCamera').disabled=true;
+  el('cameraSaveStatus').textContent='Saving…';
+  try{
+    const result=await api('/api/selectCamera',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'camera='+encodeURIComponent(el('selectedCamera').value)});
+    if(!result.ok) throw new Error('Save failed');
+    el('cameraSaveStatus').textContent='Camera saved. Restarting…';
+    el('selectedCamera').disabled=true;
+    el('blackmagicControls').disabled=true;
+    clearInterval(refreshTimer);
+  }catch(e){cameraSavePending=false;el('saveCamera').disabled=false;el('cameraSaveStatus').textContent='Could not save camera: '+e.message;}
+}
 for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.textContent='CH'+i;el('ch').appendChild(o)}
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
 function cameraLine(c){
@@ -66,6 +89,12 @@ async function refresh(){
   try{
     const s=await api('/api/status');
     el('status').textContent=JSON.stringify(s,null,2);
+    if(!cameraSavePending){
+      if(!cameraSelectionLoaded){el('selectedCamera').value=s.selectedCamera;cameraSelectionLoaded=true;}
+      el('blackmagicControls').disabled=s.selectedCamera!=='blackmagic';
+      el('cameraSupport').hidden=s.selectedCamera!=='gopro';
+      el('saveCamera').disabled=s.camera.recording || s.camera.waitingPin;
+    }
     el('pin').style.display=s.camera.waitingPin?'block':'none';
     el('camSummary').textContent=cameraLine(s.camera)+(s.camera.model?` | ${s.camera.model}`:'');
     const linked=s.camera.connected && s.camera.controlReady;
@@ -88,7 +117,7 @@ async function rec(v){await api('/api/record?on='+v);setTimeout(refresh,250)}
 async function saveMapping(){await api(`/api/saveMapping?ch=${el('ch').value}&thr=${el('thr').value}&high=${el('high').value}`);el('saveMsg').textContent='Saved';setTimeout(()=>el('saveMsg').textContent='',1200);refresh()}
 async function wifiOff(){try{await api('/api/wifioff');}catch(e){} }
 
-setInterval(refresh,1500);refresh();
+const refreshTimer=setInterval(refresh,1500);refresh();
 </script></body></html>)HTML";
 
 void WebUi::begin(const String& apName) {
@@ -104,7 +133,7 @@ void WebUi::begin(const String& apName) {
     running=true;
     Serial.printf("[%8lu ms] WIFI: web server started\n", (unsigned long)millis());
 }
-void WebUi::loop(){ if(running) server.handleClient(); if(stopRequested && millis() >= stopAtMs){ stopRequested=false; stopWifi(); } }
+void WebUi::loop(){ if(restartRequested && (int32_t)(millis()-restartAtMs)>=0) ESP.restart(); if(running) server.handleClient(); if(stopRequested && millis() >= stopAtMs){ stopRequested=false; stopWifi(); } }
 void WebUi::stopWifi(){
     if(!running)return;
     Serial.printf("[%8lu ms] WIFI: stopping AP, stations=%u\n", (unsigned long)millis(), (unsigned)WiFi.softAPgetStationNum());
@@ -117,7 +146,7 @@ void WebUi::stopWifi(){
 
 String WebUi::statusJson(){
     const CameraState& c=cam.state();
-    String j="{\"camera\":{";
+    String j="{\"selectedCamera\":\""+savedCamera+"\",\"camera\":{";
     j += "\"status\":\""+c.status+"\",\"model\":\""+c.model+"\",\"protocol\":\""+c.protocolVersion+"\",\"connected\":"+String(c.connected?"true":"false")+",\"paired\":"+String(c.paired?"true":"false")+",\"ready\":"+String(c.ready?"true":"false")+",\"controlReady\":"+String(c.controlReady?"true":"false")+",\"recording\":"+String(c.recording?"true":"false")+",\"timecode\":\""+c.timecode+"\",\"mediaRemaining\":\""+c.mediaRemaining+"\",\"activeMediaSlot\":"+String(c.activeMediaSlot)+",\"mediaSlots\":[\""+c.mediaSlotRemaining[0]+"\",\""+c.mediaSlotRemaining[1]+"\",\""+c.mediaSlotRemaining[2]+"\"],\"incomingSubscription\":\""+c.incomingSubscription+"\",\"incomingPackets\":"+String(c.incomingPackets)+",\"lastIncoming\":\""+c.lastIncoming+"\",\"waitingPin\":"+String(cam.waitingForPasskey()?"true":"false")+",\"lastCommand\":\""+c.lastCommand+"\",\"lastWrite\":\""+c.lastWrite+"\"},";
     j += "\"msp\":{\"connected\":"+String(mspClient.connected()?"true":"false")+",\"rcFresh\":"+String(mspClient.rcFresh()?"true":"false")+",\"api\":\""+String(mspClient.apiMajor())+"."+String(mspClient.apiMinor())+"\",\"responseMs\":"+String(mspClient.lastResponseMs())+",\"responses\":"+String(mspClient.responses())+",\"timeouts\":"+String(mspClient.timeouts())+",\"invalidFrames\":"+String(mspClient.invalidFrames())+",\"channels\":[";
     const size_t count = min(mspClient.rcCount(), (size_t)16);
@@ -127,16 +156,39 @@ String WebUi::statusJson(){
     return j;
 }
 
+bool WebUi::cameraAvailable(){
+    if(s.selectedCamera == "blackmagic" && !restartRequested) return true;
+    server.send(409,"application/json","{\"ok\":false}");
+    return false;
+}
+
 void WebUi::routes(){
+    server.on("/api/selectCamera",HTTP_POST,[this](){
+        const String value=server.arg("camera");
+        if(value != "blackmagic" && value != "gopro") {
+            server.send(400,"application/json","{\"ok\":false}"); return;
+        }
+        if(restartRequested || cam.state().recording || cam.waitingForPasskey()) {
+            server.send(409,"application/json","{\"ok\":false}"); return;
+        }
+        if(!prefs.selectCamera(value)) {
+            server.send(500,"application/json","{\"ok\":false}"); return;
+        }
+        savedCamera=value;
+        // Keep the running camera unchanged until reboot; reply before scheduling it.
+        server.send(200,"application/json","{\"ok\":true}");
+        restartAtMs=millis()+1000;
+        restartRequested=true;
+    });
     server.on("/",HTTP_GET,[this](){server.send_P(200,"text/html",PAGE);});
     server.on("/api/wifioff",HTTP_GET,[this](){ server.send(200,"application/json","{\"ok\":true}"); stopRequested=true; stopAtMs=millis()+250; });
     server.on("/api/status",HTTP_GET,[this](){server.send(200,"application/json",statusJson());});
 
-    server.on("/api/scan",HTTP_GET,[this](){String j;cam.startScan(j);server.send(200,"application/json",j);});
-    server.on("/api/connect",HTTP_GET,[this](){String a=server.arg("address");uint8_t t=(uint8_t)server.arg("type").toInt();bool ok=cam.connectTo(a,t);if(ok){s.cameraAddress=a;s.cameraAddressType=t;prefs.save(s);cam.setSavedTarget(a,t);}server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
-    server.on("/api/pin",HTTP_GET,[this](){uint32_t p=(uint32_t)server.arg("value").toInt();bool ok=cam.submitPasskey(p);server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
-    server.on("/api/forget",HTTP_GET,[this](){cam.forgetPairing();prefs.clearCamera();s.cameraAddress="";server.send(200,"application/json","{\"ok\":true}");});
-    server.on("/api/record",HTTP_GET,[this](){bool on=server.arg("on").toInt()!=0;bool ok=cam.setRecording(on);server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
+    server.on("/api/scan",HTTP_GET,[this](){if(!cameraAvailable())return;String j;cam.startScan(j);server.send(200,"application/json",j);});
+    server.on("/api/connect",HTTP_GET,[this](){if(!cameraAvailable())return;String a=server.arg("address");uint8_t t=(uint8_t)server.arg("type").toInt();bool ok=cam.connectTo(a,t);if(ok){s.cameraAddress=a;s.cameraAddressType=t;prefs.save(s);cam.setSavedTarget(a,t);}server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
+    server.on("/api/pin",HTTP_GET,[this](){if(!cameraAvailable())return;uint32_t p=(uint32_t)server.arg("value").toInt();bool ok=cam.submitPasskey(p);server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
+    server.on("/api/forget",HTTP_GET,[this](){if(!cameraAvailable())return;cam.forgetPairing();prefs.clearCamera();s.cameraAddress="";server.send(200,"application/json","{\"ok\":true}");});
+    server.on("/api/record",HTTP_GET,[this](){if(!cameraAvailable())return;bool on=server.arg("on").toInt()!=0;bool ok=cam.setRecording(on);server.send(200,"application/json",String("{\"ok\":")+(ok?"true":"false")+"}");});
     server.on("/api/osdtest",HTTP_GET,[this](){mspClient.setCustomText(s.osdSlot,"REC TEST"); if(s.osdSlot<3)mspClient.setCustomText(s.osdSlot+1,"MEDIA TEST"); server.send(200,"application/json","{\"ok\":true}");});
     server.on("/api/saveMapping",HTTP_GET,[this](){s.recordChannel=constrain(server.arg("ch").toInt(),1,16);s.recordThreshold=constrain(server.arg("thr").toInt(),800,2200);s.recordActiveHigh=server.arg("high").toInt()!=0;prefs.save(s);server.send(200,"application/json","{\"ok\":true}");});
     server.on("/api/saveOsd",HTTP_GET,[this](){s.osdSlot=constrain(server.arg("slot").toInt(),0,3);prefs.save(s);server.send(200,"application/json","{\"ok\":true}");});

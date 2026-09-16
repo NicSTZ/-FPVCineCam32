@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 struct AppSettings {
+    String selectedCamera = "blackmagic";
     int uartRxPin = 6;
     int uartTxPin = 7;
     uint32_t uartBaud = 115200;
@@ -22,6 +23,7 @@ public:
     AppSettings load();
     void save(const AppSettings& s);
     void clearCamera();
+    bool selectCamera(const String& value);
 private:
     Preferences prefs;
 };

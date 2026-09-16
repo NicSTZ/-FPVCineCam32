@@ -93,6 +93,7 @@ void setup() {
     delay(750);
     diagLogState("AP +750ms");
 
+    if (settings.selectedCamera == "blackmagic") {
     diagLog("BLE: camera.begin");
     camera.begin();
     diagLog("BLE: initialized");
@@ -104,13 +105,14 @@ void setup() {
     } else {
         diagLog("BLE: no saved auto-connect target");
     }
+    }
     msp.requestApiVersion();
     diagLogState("setup done");
 }
 
 void loop() {
     msp.loop();
-    camera.loop();
+    if (settings.selectedCamera == "blackmagic") camera.loop();
     if(web) web->loop();
 
     const uint32_t now=millis();
@@ -140,7 +142,7 @@ void loop() {
     if (c.controlReady && !lastControlReady) recordMapInitialized = false;
     lastControlReady = c.controlReady;
 
-    if (mappingValid && c.controlReady) {
+    if (settings.selectedCamera == "blackmagic" && mappingValid && c.controlReady) {
         const bool changed = !recordMapInitialized || desiredRecordState != lastAppliedRecordState;
         if (changed && now-lastRecordAttempt >= 300) {
             lastRecordAttempt = now;
