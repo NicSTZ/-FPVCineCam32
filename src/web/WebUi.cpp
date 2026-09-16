@@ -33,7 +33,6 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <div id=mspSummary class=muted>Waiting for FC...</div>
 <h4>Live RC channels</h4><div id=channels class=channels></div>
 <p class=muted id=mspStats></p>
-<p><b>Status message:</b> <span id=osdLive class=muted>Waiting...</span></p><p class=muted>REC/STBY remains unchanged. The next Custom Message slot now shows decoded media remaining from the Pocket 4K.</p>
 </div>
 
 <div class=card><h3>Setup Wi-Fi</h3>
@@ -51,14 +50,7 @@ function cameraLine(c){
   const link=c.connected?'Connected':'Offline';
   const ready=c.controlReady?'Control ready':'Control not ready';
   const rec=c.recording?'RECORDING':'Standby';
-  return `${link} | ${ready} | ${rec}`+(c.connected?` | ${c.timecode}`:'');
-}
-function osdPreview(c){
-  if(!c.connected) return 'BMD OFFLINE';
-  if(c.waitingPin) return 'BMD ENTER PIN';
-  if(c.recording) return `REC ${c.timecode}`;
-  if(c.ready || c.paired) return `BMD STBY ${c.timecode}`;
-  return c.status || 'BMD';
+  return `${link} | ${ready} | ${rec}`;
 }
 function drawChannels(s){
   const box=el('channels');box.innerHTML='';
@@ -79,7 +71,6 @@ async function refresh(){
     const linked=s.camera.connected && s.camera.controlReady;
     el('camBadge').className='statusBadge '+(linked?'statusOnline':'statusOffline');
     el('camBadge').textContent=linked?'Camera connected':'Camera disconnected';
-    el('osdLive').textContent=osdPreview(s.camera);
     el('mspSummary').textContent=s.msp.connected?`MSP connected | API ${s.msp.api} | last RC response ${s.msp.responseMs} ms`:'MSP offline - check UART wiring and Betaflight Ports';
     el('mspStats').textContent=`Responses: ${s.msp.responses} | Timeouts: ${s.msp.timeouts} | Invalid frames: ${s.msp.invalidFrames}`;
     el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;

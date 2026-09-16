@@ -13,3 +13,12 @@ Targeted correction on top of v0.10.9.
 BLE connection/pairing, REC/STOP writes, Wi-Fi behavior, MSP/OSD, RC mapping, GPIO6/7, and 9:2 media-time decoding are unchanged from v0.10.9.
 
 Known-good fallback remains **v0.10.6 MEDIA REMAINING**.
+
+## OSD display
+
+- The status custom message shows `REC` / `STBY` during normal camera operation.
+- The media custom message shows `MEDIA HH:MM:SS`, reflecting the active camera media. If active-media remaining time is unavailable, it shows `MEDIA --`.
+- Existing custom-message slots and transmission behavior are unchanged.
+- Custom text works on supported DJI systems; user testing confirms O3/O4 with Goggles V2. Do not rely on arbitrary custom text on Vista/original Air Unit with Goggles V1/V2.
+
+This explanation belongs in documentation, not in the live setup GUI.
