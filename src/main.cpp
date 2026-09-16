@@ -3,6 +3,7 @@
 #include "config/Settings.h"
 #include "msp/MspClient.h"
 #include "camera/BlackmagicCamera.h"
+#include "camera/GoProCamera.h"
 #include "web/WebUi.h"
 
 HardwareSerial FcSerial(1);
@@ -10,6 +11,7 @@ SettingsStore settingsStore;
 AppSettings settings;
 MspClient msp(FcSerial);
 BlackmagicCamera camera;
+GoProCamera* gopro = nullptr;
 WebUi* web = nullptr;
 
 static constexpr int ESP_RX_PIN = 6;
@@ -85,7 +87,8 @@ void setup() {
     // more predictable without changing the proven Blackmagic BLE control path.
     uint64_t mac = ESP.getEfuseMac();
     char ap[32]; snprintf(ap,sizeof(ap),"FPVCineCam32-%04X",(uint16_t)(mac&0xffff));
-    web = new WebUi(settings,settingsStore,camera,msp);
+    if (settings.selectedCamera == "gopro") gopro = new GoProCamera();
+    web = new WebUi(settings,settingsStore,camera,msp,gopro);
     Serial.printf("[%8lu ms] WIFI: starting SoftAP %s\n", (unsigned long)millis(), ap);
     web->begin(ap);
     wifiStartedAt = millis();
@@ -106,6 +109,7 @@ void setup() {
         diagLog("BLE: no saved auto-connect target");
     }
     }
+    if (gopro) gopro->begin(settings.cameraAddress);
     msp.requestApiVersion();
     diagLogState("setup done");
 }
@@ -113,6 +117,7 @@ void setup() {
 void loop() {
     msp.loop();
     if (settings.selectedCamera == "blackmagic") camera.loop();
+    if (gopro) gopro->loop();
     if(web) web->loop();
 
     const uint32_t now=millis();

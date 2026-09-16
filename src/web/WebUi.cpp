@@ -11,14 +11,26 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 </style></head><body>
 <h1>FPVCineCam32 <small>v0.10.10 ACTIVE MEDIA FIX</small></h1><div class=sub>Blackmagic + Betaflight MSP | active media remaining time</div>
 
-<div class=card><small class=muted>CAMERA SELECTOR TEST</small><h3>Camera</h3>
-<select id=selectedCamera aria-label="Camera"><option value=blackmagic>Blackmagic Pocket Cinema Camera 4K</option><option value=gopro>GoPro — Not implemented yet</option><option value=dji disabled>DJI — Coming soon</option></select>
+<div class=card><small class=muted>GOPRO CONNECTION TEST</small><h3>Camera</h3>
+<select id=selectedCamera aria-label="Camera"><option value=blackmagic>Blackmagic Pocket Cinema Camera 4K</option><option value=gopro>GoPro — Connection test</option><option value=dji disabled>DJI — Coming soon</option></select>
 <button id=saveCamera onclick=saveCamera()>Save &amp; Restart</button>
 <p id=cameraSaveStatus class=muted role=status></p>
 <p id=restartHelp class=muted hidden>Reconnect to FPVCineCam32 Wi-Fi if required, then reopen this page.</p>
-<p id=cameraSupport class=muted hidden>GoPro — Not implemented yet</p>
+
 </div>
-<div class=card><h3>Blackmagic Pocket Cinema Camera</h3>
+<div class=card id=goproCard hidden><h3>GoPro</h3>
+<p id=gpStatus role=status>Offline</p>
+<p class=muted>For first pairing, open Connect Device / GoPro Quik App on the camera.</p>
+<button id=gpScan onclick=gpAction('scan')>Scan for GoPro</button>
+<select id=gpCameras aria-label="Discovered GoPro cameras"></select>
+<button id=gpConnect onclick=gpAction('connect')>Connect</button>
+<button id=gpForget onclick=gpAction('forget')>Forget GoPro pairing</button>
+<p id=gpMessage class=muted role=status></p>
+<button id=gpCopy onclick=copyGoProLog()>Copy log</button>
+<textarea id=gpLog readonly aria-label="GoPro connection log" hidden style="box-sizing:border-box;width:100%;height:180px;background:#111;color:#eee"></textarea>
+<p id=gpCopyStatus class=muted role=status></p>
+</div>
+<div class=card><h3 id=blackmagicTitle>Blackmagic Pocket Cinema Camera</h3>
 <fieldset id=blackmagicControls style="border:0;padding:0;margin:0">
 <div id=camBadge class="statusBadge statusOffline">Camera disconnected</div><div id=camSummary class=muted>Loading...</div>
 <div id=pin style="display:none"><p class=warn>Enter the 6-digit PIN shown on the BMPCC 4K:</p><input id=pinval inputmode=numeric maxlength=6 placeholder=123456><button onclick=sendPin()>Submit PIN</button></div>
@@ -92,6 +104,41 @@ async function saveCamera(){
 }
 for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.textContent='CH'+i;el('ch').appendChild(o)}
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
+let gpRequestPending=false, gpList='';
+function drawGoPro(g){
+  el('gpStatus').textContent=g.status;
+  const list=JSON.stringify(g.cameras);
+  if(list!==gpList){
+    gpList=list;el('gpCameras').replaceChildren();
+    g.cameras.forEach(c=>{const option=document.createElement('option');option.value=c.index;option.textContent=c.name||('GoPro '+c.address);el('gpCameras').appendChild(option)});
+  }
+  el('gpScan').disabled=g.busy || g.connected || gpRequestPending || cameraSavePending;
+  el('gpConnect').disabled=g.busy || g.connected || !g.cameras.length || gpRequestPending || cameraSavePending;
+  el('gpForget').disabled=g.busy || gpRequestPending || cameraSavePending;
+}
+async function gpAction(action){
+  if(gpRequestPending || cameraSavePending)return;
+  gpRequestPending=true;
+  ['gpScan','gpConnect','gpForget'].forEach(id=>el(id).disabled=true);
+  try{
+    await api('/api/gopro/'+action,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'index='+encodeURIComponent(el('gpCameras').value)});
+    el('gpMessage').textContent='';
+  }catch(e){el('gpMessage').textContent='Request failed: '+e.message;}
+  finally{gpRequestPending=false;refresh();}
+}
+async function copyGoProLog(){
+  el('gpCopy').disabled=true;
+  try{
+    const response=await fetch('/api/gopro/log',{cache:'no-store'});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    const box=el('gpLog');box.value=await response.text();
+    let copied=false;
+    try{if(navigator.clipboard && window.isSecureContext){await navigator.clipboard.writeText(box.value);copied=true;}}catch(e){}
+    if(!copied){box.hidden=false;box.focus();box.select();box.setSelectionRange(0,box.value.length);try{copied=document.execCommand('copy');}catch(e){}}
+    el('gpCopyStatus').textContent=copied?'Log copied.':'Log selected. Use Copy on your phone or Ctrl/Cmd+C.';
+  }catch(e){el('gpCopyStatus').textContent='Could not read log: '+e.message;}
+  finally{el('gpCopy').disabled=false;}
+}
 function cameraLine(c){
   const link=c.connected?'Connected':'Offline';
   const ready=c.controlReady?'Control ready':'Control not ready';
@@ -115,9 +162,12 @@ async function refresh(){
     if(!cameraSavePending){
       if(!cameraSelectionLoaded){el('selectedCamera').value=s.selectedCamera;cameraSelectionLoaded=true;}
       el('blackmagicControls').disabled=s.selectedCamera!=='blackmagic';
-      el('cameraSupport').hidden=s.selectedCamera!=='gopro';
+      el('blackmagicControls').hidden=s.selectedCamera==='gopro';
+      el('blackmagicTitle').hidden=s.selectedCamera==='gopro';
+      el('goproCard').hidden=s.selectedCamera!=='gopro';
       el('saveCamera').disabled=s.camera.recording || s.camera.waitingPin;
     }
+    if(s.gopro) drawGoPro(s.gopro);
     el('pin').style.display=s.camera.waitingPin?'block':'none';
     el('camSummary').textContent=cameraLine(s.camera)+(s.camera.model?` | ${s.camera.model}`:'');
     const linked=s.camera.connected && s.camera.controlReady;
@@ -176,6 +226,7 @@ String WebUi::statusJson(){
     for(size_t i=0;i<count;i++){ if(i)j+=','; j+=String(mspClient.rcValue(i)); }
     j += "]},";
     j += "\"settings\":{\"rx\":6,\"tx\":7,\"baud\":115200,\"channel\":"+String(s.recordChannel)+",\"threshold\":"+String(s.recordThreshold)+",\"high\":"+String(s.recordActiveHigh?"true":"false")+",\"slot\":"+String(s.osdSlot)+"}}";
+    if(gp){j.remove(j.length()-1);j+=",\"gopro\":"+gp->statusJson()+"}";}
     return j;
 }
 
@@ -185,7 +236,31 @@ bool WebUi::cameraAvailable(){
     return false;
 }
 
+bool WebUi::goProAvailable(){
+    if(gp && s.selectedCamera=="gopro" && !restartRequested)return true;
+    server.send(409,"application/json","{\"ok\":false}");return false;
+}
+
 void WebUi::routes(){
+    server.on("/api/gopro/scan",HTTP_POST,[this](){
+        if(!goProAvailable())return;
+        const bool ok=gp->scan();server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+    });
+    server.on("/api/gopro/connect",HTTP_POST,[this](){
+        if(!goProAvailable())return;
+        String index=server.arg("index");bool valid=index.length()>0 && index.length()<=2;
+        for(size_t i=0;i<index.length();++i)if(index[i]<'0'||index[i]>'9')valid=false;
+        const bool ok=valid && gp->connectDiscovered(index.toInt());
+        server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+    });
+    server.on("/api/gopro/forget",HTTP_POST,[this](){
+        if(!goProAvailable())return;
+        const bool ok=gp->forget();server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+    });
+    server.on("/api/gopro/log",HTTP_GET,[this](){
+        if(!goProAvailable())return;
+        server.sendHeader("Cache-Control","no-store");server.send(200,"text/plain; charset=utf-8",gp->connectionLog());
+    });
     server.on("/api/selectCamera",HTTP_POST,[this](){
         const String value=server.arg("camera");
         if(value != "blackmagic" && value != "gopro") {
