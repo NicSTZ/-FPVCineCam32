@@ -18,7 +18,7 @@ public:
     bool waitingForPasskey() const override { return passkeyPending; }
     const CameraState& state() const override { return camState; }
 
-    void setSavedTarget(const String& address, uint8_t type) override { savedAddress = address; savedAddressType = type; }
+    void setSavedTarget(const String& address, uint8_t type) { savedAddress = address; savedAddressType = type; }
     String currentAddress() const { return connectedAddress; }
     uint8_t currentAddressType() const { return connectedAddressType; }
 

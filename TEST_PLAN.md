@@ -1,12 +1,12 @@
-# v0.10.11-r1 BASELINE UI + LOGS — focused check
+# v0.10.10 ACTIVE MEDIA FIX — focused test
 
-Flash without erasing settings to check the existing saved pairing. Keep the TX16S record switch at STOP during boot and camera switching.
+No diagnostic clearing is required.
 
-1. Join setup Wi-Fi. Confirm v0.10.11-r1, quick Wi-Fi access, and saved Blackmagic connection. Copy the connection log before rebooting if it fails; do not clear pairing immediately.
-2. Confirm live RC channels and saved mapping. Use the TX16S switch for one REC -> STOP cycle; check camera action, REC/STBY and MEDIA time on supported goggles. Compare remaining time with the camera's active media.
-3. Choose GoPro, Save and reboot. Follow the reconnect/reload guidance. Confirm GoPro remains a placeholder and MSP still responds. Choose Blackmagic again; confirm the saved connection returns.
-4. Disable Wi-Fi and repeat one RC REC -> STOP cycle. Reboot to restore setup Wi-Fi. The unchanged 90-second no-client shutdown can be checked on a later unattended boot.
+1. Flash v0.10.10 and let the saved Pocket 4K reconnect.
+2. Slot 1 active: confirm `activeMediaSlot: 1` and `mediaRemaining: 00:24:18`.
+3. Move to slot 2: confirm `activeMediaSlot: 2` and `mediaRemaining: 00:23:37`.
+4. Move to slot 3: confirm `activeMediaSlot: 3` and `mediaRemaining: 01:27:22`.
+5. Remove all media: confirm `activeMediaSlot: 0` and `mediaRemaining: --`.
+6. Quick REC -> STOP regression check.
 
-Use Copy connection log if any step fails and report the step. Fresh pairing and repeated power-cycle stress tests are not required for this first baseline check. Hardware behavior remains unverified until tested on the device.
-
-Rollback: original v0.10.11 source and firmware at `5197f0e`; known-good v0.10.6 at `6b29b3a`. Retain NVS when preserving bonds/settings.
+If any slot is wrong, one screenshot of Diagnostics at that state is enough.

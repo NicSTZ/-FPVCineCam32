@@ -14,24 +14,20 @@ static const NimBLEUUID MODEL_UUID("2A24");
 BlackmagicCamera::BlackmagicCamera() : callbacks(this) { instance = this; }
 
 void BlackmagicCamera::begin() {
-    connectionTrace.add("BLE init begin");
     NimBLEDevice::init("FPVCineCam32");
     NimBLEDevice::setPower(3);
     // Bonding + MITM. The BMPCC shows a 6-digit PIN and our web UI injects it.
     NimBLEDevice::setSecurityAuth(true, true, false);
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_KEYBOARD_ONLY);
     camState.status = "BMD IDLE";
-    connectionTrace.add("BLE init complete");
 }
 
 bool BlackmagicCamera::startScan(String& jsonOut) {
-    connectionTrace.add("SCAN begin queued=%d task=%d pinPending=%d", (int)connectRequested, (int)connectTaskRunning, (int)passkeyPending);
     NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setActiveScan(true);
     scan->setInterval(60);
     scan->setWindow(45);
     NimBLEScanResults results = scan->getResults(3500, false);
-    connectionTrace.add("SCAN returned devices=%d", results.getCount());
     jsonOut = "[";
     bool first = true;
     for (int i = 0; i < results.getCount(); i++) {
@@ -42,23 +38,19 @@ bool BlackmagicCamera::startScan(String& jsonOut) {
         String name = d->getName().c_str();
         String addr = d->getAddress().toString().c_str();
         uint8_t type = d->getAddress().getType();
-        connectionTrace.add("SCAN BMD address=%s type=%u name=%.48s", addr.c_str(), (unsigned)type, name.c_str());
         jsonOut += "{\"name\":\"" + name + "\",\"address\":\"" + addr + "\",\"type\":" + String(type) + "}";
     }
     jsonOut += "]";
     scan->clearResults();
-    connectionTrace.add("SCAN complete");
     return true;
 }
 
 bool BlackmagicCamera::connectTo(const String& address, uint8_t addressType) {
-    connectionTrace.add("CONNECT request address=%.32s type=%u queued=%d task=%d pinPending=%d", address.c_str(), (unsigned)addressType, (int)connectRequested, (int)connectTaskRunning, (int)passkeyPending);
     if (!address.length()) return false;
     requestedAddress = address;
     requestedAddressType = addressType;
     connectRequested = true;
     camState.status = "CONNECT QUEUED";
-    connectionTrace.add("CONNECT queued");
     return true;
 }
 
@@ -66,16 +58,13 @@ void BlackmagicCamera::connectTaskThunk(void* arg) {
     BlackmagicCamera* self = static_cast<BlackmagicCamera*>(arg);
     String addr = self->requestedAddress;
     uint8_t type = self->requestedAddressType;
-    self->connectionTrace.add("TASK start address=%s type=%u", addr.c_str(), (unsigned)type);
     self->connectRequested = false;
     self->performConnect(addr, type);
-    self->connectionTrace.add("TASK finish status=%.48s queued=%d", self->camState.status.c_str(), (int)self->connectRequested);
     self->connectTaskRunning = false;
     vTaskDelete(nullptr);
 }
 
 void BlackmagicCamera::performConnect(const String& address, uint8_t addressType) {
-    connectionTrace.add("CONNECT begin previousLink=%d", client && client->isConnected());
     if (client && client->isConnected()) client->disconnect();
 
     serviceReady = false;
@@ -112,10 +101,8 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     }
 
     NimBLEAddress addr(address.c_str(), addressType);
-    connectionTrace.add("BLE connect call address=%s type=%u", address.c_str(), (unsigned)addressType);
     if (!client->connect(addr, true, false, false)) {
         camState.status = "BLE CONNECT FAIL";
-        connectionTrace.add("BLE connect failed error=%d", client->getLastError());
         return;
     }
 
@@ -123,11 +110,8 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     connectedAddressType = addressType;
     camState.connected = true;
     camState.status = "BLE CONNECTED";
-    connectionTrace.add("BLE connect returned success handle=%u", (unsigned)client->getConnHandle());
-    connectionTrace.add("DISCOVERY BMD service begin");
 
     NimBLERemoteService* svc = client->getService(BMD_SERVICE);
-    connectionTrace.add("DISCOVERY BMD service found=%d error=%d", svc != nullptr, client->getLastError());
     if (!svc) {
         camState.status = "NO BMD SERVICE";
         client->disconnect();
@@ -135,30 +119,24 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     }
 
     outgoing = svc->getCharacteristic(OUTGOING_UUID);
-    connectionTrace.add("DISCOVERY outgoing found=%d", outgoing != nullptr);
     incoming = svc->getCharacteristic(INCOMING_UUID);
     timecode = svc->getCharacteristic(TIMECODE_UUID);
     statusChar = svc->getCharacteristic(STATUS_UUID);
     protocolChar = svc->getCharacteristic(PROTOCOL_UUID);
-    connectionTrace.add("DISCOVERY incoming=%d timecode=%d status=%d protocol=%d", incoming != nullptr, timecode != nullptr, statusChar != nullptr, protocolChar != nullptr);
-    connectionTrace.add("IDENTITY discovery/read begin");
 
     if (auto* info = client->getService(DEVICE_INFO)) {
         modelChar = info->getCharacteristic(MODEL_UUID);
     }
     readIdentity();
-    connectionTrace.add("IDENTITY read end model=%.48s", camState.model.c_str());
 
     serviceReady = outgoing && statusChar;
     if (!serviceReady) {
         camState.status = "BMD CHAR MISSING";
-        connectionTrace.add("DISCOVERY required characteristics missing");
         client->disconnect();
         return;
     }
 
     NimBLEConnInfo ci = client->getConnInfo();
-    connectionTrace.add("SECURITY encrypted=%d bonded=%d", ci.isEncrypted(), ci.isBonded());
     if (ci.isEncrypted() || ci.isBonded()) {
         camState.paired = true;
         camState.status = "ALREADY BONDED";
@@ -172,16 +150,13 @@ void BlackmagicCamera::performConnect(const String& address, uint8_t addressType
     // task while the main loop keeps the web UI responsive for PIN entry.
     camState.status = "TRIGGERING CAMERA PIN";
     const bool wrote = triggerPairingByEncryptedWrite();
-    connectionTrace.add("PAIR trigger returned ok=%d error=%d pinPending=%d", wrote, client->getLastError(), (int)passkeyPending);
 
     if (!client || !client->isConnected()) {
         if (camState.status != "PAIR FAILED") camState.status = "DISCONNECTED DURING PAIR";
-        connectionTrace.add("PAIR link lost during trigger");
         return;
     }
 
     ci = client->getConnInfo();
-    connectionTrace.add("PAIR after trigger encrypted=%d bonded=%d pinPending=%d", ci.isEncrypted(), ci.isBonded(), (int)passkeyPending);
     if (ci.isEncrypted() || ci.isBonded()) {
         camState.paired = true;
         camState.status = "PAIRED - SUBSCRIBING";
@@ -235,12 +210,10 @@ void BlackmagicCamera::readIdentity() {
 bool BlackmagicCamera::triggerPairingByEncryptedWrite() {
     if (!statusChar || !client || !client->isConnected()) return false;
     uint8_t powerOn = 0x01;
-    connectionTrace.add("PAIR encrypted status write begin");
     return statusChar->writeValue(&powerOn, 1, true);
 }
 
 bool BlackmagicCamera::discoverAndSubscribe() {
-    connectionTrace.add("SUBSCRIBE begin serviceReady=%d", serviceReady);
     if (!client || !client->isConnected() || !serviceReady) return false;
 
     // Preserve the v0.10.1 control path. Status/timecode subscriptions still
@@ -250,7 +223,6 @@ bool BlackmagicCamera::discoverAndSubscribe() {
     bool coreOk = true;
     if (timecode && timecode->canNotify()) coreOk &= timecode->subscribe(true, timecodeNotify);
     if (statusChar && statusChar->canNotify()) coreOk &= statusChar->subscribe(true, statusNotify);
-    connectionTrace.add("SUBSCRIBE core ok=%d", coreOk);
 
     incomingSubscribeOk = false;
     camState.incomingSubscription = "none";
@@ -267,7 +239,6 @@ bool BlackmagicCamera::discoverAndSubscribe() {
     }
 
     subscriptionsReady = coreOk;
-    connectionTrace.add("SUBSCRIBE incoming mode=%s ok=%d", camState.incomingSubscription.c_str(), incomingSubscribeOk);
     camState.controlReady = coreOk && outgoing != nullptr;
     if (coreOk) {
         camState.paired = true;
@@ -276,7 +247,6 @@ bool BlackmagicCamera::discoverAndSubscribe() {
         camState.controlReady = false;
         camState.status = "SUBSCRIBE FAIL";
     }
-    connectionTrace.add("SUBSCRIBE end controlReady=%d error=%d", camState.controlReady, client->getLastError());
     return coreOk;
 }
 
@@ -285,49 +255,41 @@ void BlackmagicCamera::loop() {
     // subscription work here instead of inside the callback so we do not block it.
     if (postAuthRequested && !passkeyPending && client && client->isConnected() && millis() >= postAuthAtMs) {
         postAuthRequested = false;
-        connectionTrace.add("AUTH deferred subscription running task=%d", (int)connectTaskRunning);
         camState.status = "AUTH OK - SETTING CONTROL";
         discoverAndSubscribe();
     }
 
     if (connectRequested && !connectTaskRunning) {
-        connectionTrace.add("TASK launch");
         connectTaskRunning = true;
         if (xTaskCreate(connectTaskThunk, "bmd-connect", 8192, this, 1, nullptr) != pdPASS) {
             connectTaskRunning = false;
             connectRequested = false;
             camState.status = "CONNECT TASK FAIL";
-            connectionTrace.add("TASK launch failed");
         }
     }
 
     if (reconnectWanted && !connectTaskRunning && !connectRequested && millis() >= nextReconnectMs && savedAddress.length()) {
         reconnectWanted = false;
-        connectionTrace.add("RECONNECT timer fired");
         connectTo(savedAddress, savedAddressType);
     }
 }
 
 bool BlackmagicCamera::submitPasskey(uint32_t pin) {
-    connectionTrace.add("PIN submit requested pending=%d validRange=%d", (int)passkeyPending, pin <= 999999);
     if (!passkeyPending || pin > 999999 || !client || !client->isConnected()) return false;
     NimBLEConnInfo ci = client->getConnInfo();
     if (ci.getConnHandle() != pendingConnHandle) return false;
     const bool ok = NimBLEDevice::injectPassKey(ci, pin);
-    connectionTrace.add("PIN inject result=%d", ok);
     if (ok) camState.status = "PIN SUBMITTED";
     else camState.status = "PIN INJECT FAIL";
     return ok;
 }
 
 void BlackmagicCamera::ClientCallbacks::onConnect(NimBLEClient*) {
-    o->connectionTrace.add("CALLBACK link up");
     o->camState.connected = true;
     o->camState.status = "BLE LINK UP";
 }
 
 void BlackmagicCamera::ClientCallbacks::onDisconnect(NimBLEClient*, int reason) {
-    o->connectionTrace.add("CALLBACK disconnected reason=%d (0x%X)", reason, (unsigned)reason);
     o->camState.connected = false;
     o->camState.ready = false;
     o->camState.recording = false;
@@ -341,19 +303,16 @@ void BlackmagicCamera::ClientCallbacks::onDisconnect(NimBLEClient*, int reason) 
     if (o->savedAddress.length()) {
         o->reconnectWanted = true;
         o->nextReconnectMs = millis() + 2500;
-        o->connectionTrace.add("RECONNECT scheduled delay=2500ms");
     }
 }
 
 void BlackmagicCamera::ClientCallbacks::onPassKeyEntry(NimBLEConnInfo& connInfo) {
-    o->connectionTrace.add("CALLBACK PIN requested handle=%u", (unsigned)connInfo.getConnHandle());
     o->pendingConnHandle = connInfo.getConnHandle();
     o->passkeyPending = true;
     o->camState.status = "ENTER CAMERA PIN";
 }
 
 void BlackmagicCamera::ClientCallbacks::onAuthenticationComplete(NimBLEConnInfo& connInfo) {
-    o->connectionTrace.add("CALLBACK authentication encrypted=%d bonded=%d handle=%u", connInfo.isEncrypted(), connInfo.isBonded(), (unsigned)connInfo.getConnHandle());
     o->passkeyPending = false;
     o->pendingConnHandle = BLE_HS_CONN_HANDLE_NONE;
     if (!connInfo.isEncrypted()) {
@@ -423,7 +382,6 @@ bool BlackmagicCamera::toggleRecording() { return setRecording(!camState.recordi
 void BlackmagicCamera::disconnect() { if (client && client->isConnected()) client->disconnect(); }
 
 void BlackmagicCamera::forgetPairing() {
-    connectionTrace.add("FORGET pairing requested");
     disconnect();
     NimBLEDevice::deleteAllBonds();
     savedAddress = "";

@@ -1,6 +1,5 @@
 #pragma once
 #include <Arduino.h>
-#include "../diagnostics/ConnectionLog.h"
 
 struct CameraState {
     bool connected = false;
@@ -28,9 +27,7 @@ struct CameraState {
 
 class ICameraBackend {
 public:
-    String connectionLog() { return connectionTrace.snapshot(); }
     virtual ~ICameraBackend() = default;
-    virtual void setSavedTarget(const String& address, uint8_t type) = 0;
     virtual void begin() = 0;
     virtual void loop() = 0;
     virtual bool startScan(String& jsonOut) = 0;
@@ -42,6 +39,4 @@ public:
     virtual bool submitPasskey(uint32_t pin) = 0;
     virtual bool waitingForPasskey() const = 0;
     virtual const CameraState& state() const = 0;
-protected:
-    ConnectionLog connectionTrace;
 };
