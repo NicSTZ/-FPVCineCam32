@@ -79,7 +79,7 @@ static String goProStatusText(const GoProCamera::Snapshot& c) {
 }
 static String goProTimeText(uint32_t seconds) {
     char text[24];
-    snprintf(text,sizeof(text),"%luh:%02lu",(unsigned long)(seconds/3600),(unsigned long)((seconds%3600)/60));
+    snprintf(text,sizeof(text),"%luH:%02lu",(unsigned long)(seconds/3600),(unsigned long)((seconds%3600)/60));
     return String(text);
 }
 static String goProMediaText(const GoProCamera::Snapshot& c) {

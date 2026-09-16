@@ -12,7 +12,7 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 </style></head><body>
 <h1>FPVCineCam32</h1><div class=sub>Blackmagic + Betaflight MSP | active media remaining time</div>
 
-<div class=card><h3>Camera</h3>
+<div class=card><h3>Camera system</h3>
 <select id=selectedCamera aria-label="Camera"><option value=blackmagic>Blackmagic Pocket Cinema Camera 4K</option><option value=gopro>GoPro</option><option value=dji disabled>DJI — Coming soon</option></select>
 <button id=saveCamera onclick=saveCamera()>Save &amp; Restart</button>
 <p id=cameraSaveStatus class=muted role=status></p>
@@ -24,7 +24,7 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <span id=gpScanStatus class=muted role=status></span>
 <div id=gpCameras aria-label="Discovered GoPro cameras"></div>
 <p id=gpMessage class=muted role=status></p>
-<p class=muted>For first pairing, open Connect Device / GoPro Quik App on the camera.</p>
+<p class=muted>For first pairing, put the GoPro into pairing mode.</p>
 <p id=gpStatus role=status>Offline</p>
 <h4>Saved cameras</h4><div id=gpSaved></div>
 <p id=gpStorageError class=warn hidden>Saved camera list could not be read or saved. Copy the log before restarting.</p>
@@ -32,13 +32,20 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <textarea id=gpLog readonly aria-label="GoPro connection log" hidden style="box-sizing:border-box;width:100%;height:180px;background:#111;color:#eee"></textarea>
 <p id=gpCopyStatus class=muted role=status></p>
 </div>
-<div class=card><h3 id=blackmagicTitle>Blackmagic Pocket Cinema Camera</h3>
+<div class=card id=blackmagicCard><h3 id=blackmagicTitle>Blackmagic Pocket Cinema Camera</h3>
 <fieldset id=blackmagicControls style="border:0;padding:0;margin:0">
 <div id=camBadge class="statusBadge statusOffline">Camera disconnected</div><div id=camSummary class=muted>Loading...</div>
 <div id=pin style="display:none"><p class=warn>Enter the 6-digit PIN shown on the BMPCC 4K:</p><input id=pinval inputmode=numeric maxlength=6 placeholder=123456><button onclick=sendPin()>Submit PIN</button></div>
 <p><button onclick=scan()>Scan for cameras</button><span id=cams></span></p>
 <p><button onclick="rec(1)">REC test</button><button onclick="rec(0)">STOP test</button><button onclick=forget()>Forget pairing</button></p>
 </fieldset>
+
+</div>
+
+<div class=card><h3>Betaflight / MSP</h3>
+<table class=wiring><thead><tr><th scope=col>Flight controller</th><th scope=col>ESP32-C3</th></tr></thead><tbody><tr><td>FC TX</td><td>GPIO6 (ESP RX)</td></tr><tr><td>FC RX</td><td>GPIO7 (ESP TX)</td></tr><tr><td>GND</td><td>GND</td></tr></tbody></table>
+<p class=muted>Enable MSP at 115200 baud on that Betaflight UART.</p>
+<div id=mspSummary class=muted>Waiting for FC...</div>
 <hr style="border-color:#333">
 <h4>REC / STOP switch mapping</h4>
 <div class=grid>
@@ -48,12 +55,6 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <label>Live selected channel<input id=selectedValue readonly></label>
 </div>
 <button onclick=saveMapping()>Save mapping</button><span id=saveMsg class=muted></span>
-</div>
-
-<div class=card><h3>Betaflight / MSP</h3>
-<table class=wiring><thead><tr><th scope=col>Flight controller</th><th scope=col>ESP32-C3</th></tr></thead><tbody><tr><td>FC TX</td><td>GPIO6 (ESP RX)</td></tr><tr><td>FC RX</td><td>GPIO7 (ESP TX)</td></tr><tr><td>GND</td><td>GND</td></tr></tbody></table>
-<p class=muted>Enable MSP at 115200 baud on that Betaflight UART.</p>
-<div id=mspSummary class=muted>Waiting for FC...</div>
 <h4>Live RC channels</h4><div id=channels class=channels></div>
 <p class=muted id=mspStats></p>
 </div>
@@ -63,7 +64,6 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <button onclick=wifiOff()>Disable Wi-Fi now</button>
 </div>
 
-<div class=card><h3>Diagnostics</h3><pre id=status>Loading...</pre><button onclick=refresh()>Refresh</button></div>
 
 <script>
 const el=id=>document.getElementById(id);
@@ -206,12 +206,12 @@ function drawChannels(s){
 async function refresh(){
   try{
     const s=await api('/api/status');
-    el('status').textContent=JSON.stringify(s,null,2);
     if(!cameraSavePending){
       if(!cameraSelectionLoaded){el('selectedCamera').value=s.selectedCamera;cameraSelectionLoaded=true;}
       el('blackmagicControls').disabled=s.selectedCamera!=='blackmagic';
       el('blackmagicControls').hidden=s.selectedCamera==='gopro';
       el('blackmagicTitle').hidden=s.selectedCamera==='gopro';
+      el('blackmagicCard').hidden=s.selectedCamera==='gopro';
       el('goproCard').hidden=s.selectedCamera!=='gopro';
       el('saveCamera').disabled=s.camera.recording || s.camera.waitingPin;
     }
@@ -225,7 +225,7 @@ async function refresh(){
     el('mspStats').textContent=`Responses: ${s.msp.responses} | Timeouts: ${s.msp.timeouts} | Invalid frames: ${s.msp.invalidFrames}`;
     el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;
     drawChannels(s);
-  }catch(e){el('status').textContent='Status error: '+e.message;el('mspSummary').textContent='ESP web API unavailable'}
+  }catch(e){el('mspSummary').textContent='ESP web API unavailable'}
 }
 async function scan(){
   el('cams').textContent='Scanning...';
