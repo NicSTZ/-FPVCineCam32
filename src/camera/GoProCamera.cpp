@@ -31,12 +31,95 @@ void GoProCamera::begin(const String& blackmagicAddress) {
     // Never let the default round-robin store handler evict a Blackmagic bond.
     NimBLEDevice::setDeviceCallbacks(&storeCallbacks);
     log("BLE initialized; NVS bond persistence enabled");
+    loadSaved();
+    // Migrate the old single saved peer only if its bond actually exists.
+    const String legacyIdentity=identityAddress.length()?identityAddress:savedAddress;
+    const uint8_t legacyType=identityAddress.length()?identityType:savedType;
+    if(legacyIdentity.length() && !protectedAddress.equalsIgnoreCase(legacyIdentity) &&
+       NimBLEDevice::isBonded(NimBLEAddress(legacyIdentity.c_str(),legacyType))){
+        Found legacy{};
+        snprintf(legacy.address,sizeof(legacy.address),"%s",savedAddress.c_str());legacy.type=savedType;
+        rememberPaired(legacyIdentity,legacyType,legacy);
+    }
     if(savedAddress.length()){
         snprintf(requested.address,sizeof(requested.address),"%s",savedAddress.c_str());
         requested.type=savedType;
         log("Boot reconnect queued");
         retryAllowed=true; reconnect=true; retryAt=millis();
     }
+}
+
+String GoProCamera::savedId(const SavedCamera& value){
+    return String(value.type)+":"+value.address;
+}
+bool GoProCamera::matches(const SavedCamera& value,const String& address,uint8_t type){
+    return (value.type==type && address.equalsIgnoreCase(value.address)) ||
+           (value.advertisedType==type && address.equalsIgnoreCase(value.advertisedAddress));
+}
+GoProCamera::SavedList GoProCamera::savedSnapshot(){
+    SavedList copy;
+    portENTER_CRITICAL(&mux);copy=savedList;portEXIT_CRITICAL(&mux);
+    return copy;
+}
+void GoProCamera::loadSaved(){
+    if(!prefs.isKey("cards_v1"))return;
+    SavedList copy;
+    bool valid=prefs.getBytesLength("cards_v1")==sizeof(copy) &&
+        prefs.getBytes("cards_v1",&copy,sizeof(copy))==sizeof(copy) && copy.version==1 && copy.count<=MAX_SAVED;
+    if(valid)for(size_t i=0;i<copy.count;++i){
+        const auto& c=copy.cameras[i];
+        if(c.address[17]!=0 || strlen(c.address)!=17 || c.type>3 ||
+           c.advertisedAddress[17]!=0 || c.advertisedType>3 ||
+           c.reportedName[63]!=0 || c.friendlyName[48]!=0)valid=false;
+        for(size_t j=0;j<i;++j)if(savedId(c)==savedId(copy.cameras[j]))valid=false;
+    }
+    if(!valid){savedListAvailable=false;savedListError=true;log("Saved camera list invalid; preserved without overwrite");return;}
+    portENTER_CRITICAL(&mux);savedList=copy;portEXIT_CRITICAL(&mux);
+}
+bool GoProCamera::persistSaved(const SavedList& value){
+    if(!savedListAvailable)return false;
+    if(prefs.putBytes("cards_v1",&value,sizeof(value))!=sizeof(value)){
+        savedListError=true;log("Saved camera list write failed");return false;
+    }
+    portENTER_CRITICAL(&mux);savedList=value;portEXIT_CRITICAL(&mux);
+    savedListError=false;return true;
+}
+bool GoProCamera::findSaved(const String& id,SavedCamera& value){
+    auto copy=savedSnapshot();
+    for(size_t i=0;i<copy.count;++i)if(savedId(copy.cameras[i])==id){value=copy.cameras[i];return true;}
+    return false;
+}
+void GoProCamera::rememberPaired(const String& address,uint8_t type,const Found& discovered){
+    portENTER_CRITICAL(&mux);
+    snprintf(activeAddress,sizeof(activeAddress),"%s",address.c_str());activeType=type;
+    portEXIT_CRITICAL(&mux);
+    auto copy=savedSnapshot();size_t index=copy.count;
+    for(size_t i=0;i<copy.count;++i)if(matches(copy.cameras[i],address,type) ||
+        matches(copy.cameras[i],discovered.address,discovered.type)){index=i;break;}
+    if(index==MAX_SAVED){savedListError=true;log("Saved camera list full");return;}
+    if(index==copy.count)++copy.count;
+    auto& c=copy.cameras[index];
+    snprintf(c.address,sizeof(c.address),"%s",address.c_str());c.type=type;
+    // Keep a known advertisement alias when reconnecting directly to the identity.
+    if(discovered.address[0] && (!c.advertisedAddress[0] || !address.equalsIgnoreCase(discovered.address))){
+        snprintf(c.advertisedAddress,sizeof(c.advertisedAddress),"%s",discovered.address);c.advertisedType=discovered.type;
+    }
+    if(discovered.name[0])snprintf(c.reportedName,sizeof(c.reportedName),"%s",discovered.name);
+    auto old=savedSnapshot();
+    if(memcmp(&old,&copy,sizeof(copy))!=0)persistSaved(copy);
+}
+bool GoProCamera::prepareConnect(){
+    // Only an explicit camera switch reaches here with an existing connection.
+    if(client && client->isConnected()){
+        retryAllowed=false;reconnect=false;client->disconnect();
+        for(unsigned i=0;i<30 && linked;++i)vTaskDelay(pdMS_TO_TICKS(100));
+        if(linked){log("Camera switch failed: disconnect timeout");return false;}
+        retryAllowed=true;
+    }
+    portENTER_CRITICAL(&mux);
+    snprintf(activeAddress,sizeof(activeAddress),"%s",requested.address);activeType=requested.type;
+    portEXIT_CRITICAL(&mux);
+    return true;
 }
 
 bool GoProCamera::launch(Job value) {
@@ -52,19 +135,19 @@ void GoProCamera::task(void* context) {
     auto* self=static_cast<GoProCamera*>(context);
     switch(self->job){
         case Job::Scan: self->runScan();break;
-        case Job::Connect: self->runConnect();break;
+        case Job::Connect: if(self->prepareConnect())self->runConnect();break;
         case Job::Forget: self->runForget();break;
     }
     self->working=false;
     vTaskDelete(nullptr);
 }
 bool GoProCamera::scan(){
-    if(working || linked)return false;
+    if(working)return false;
     reconnect=false;
     return launch(Job::Scan);
 }
 bool GoProCamera::connectDiscovered(unsigned index){
-    if(working || linked)return false;
+    if(working || !savedListAvailable)return false;
     portENTER_CRITICAL(&mux);
     bool valid=index<foundCount;
     if(valid)requested=found[index];
@@ -73,10 +156,30 @@ bool GoProCamera::connectDiscovered(unsigned index){
     reconnect=false;retryAllowed=true;
     return launch(Job::Connect);
 }
-bool GoProCamera::forget(){
+bool GoProCamera::connectSaved(const String& id){
     if(working)return false;
-    reconnect=false;retryAllowed=false;
+    SavedCamera value{};
+    if(!findSaved(id,value) || protectedAddress.equalsIgnoreCase(value.address))return false;
+    snprintf(requested.address,sizeof(requested.address),"%s",value.address);requested.type=value.type;
+    snprintf(requested.name,sizeof(requested.name),"%s",value.reportedName);
+    reconnect=false;retryAllowed=true;
+    return launch(Job::Connect);
+}
+bool GoProCamera::forget(const String& id){
+    if(working || !findSaved(id,removal))return false;
     return launch(Job::Forget);
+}
+bool GoProCamera::renameSaved(const String& id,const String& name){
+    if(name.length()>48 || !storageReady || !savedListAvailable)return false;
+    for(size_t i=0;i<name.length();++i)if((uint8_t)name[i]<32)return false;
+    bool expected=false;
+    if(!working.compare_exchange_strong(expected,true))return false;
+    auto list=savedSnapshot();bool ok=false;
+    for(size_t i=0;i<list.count;++i)if(savedId(list.cameras[i])==id){
+        snprintf(list.cameras[i].friendlyName,sizeof(list.cameras[i].friendlyName),"%s",name.c_str());
+        ok=persistSaved(list);break;
+    }
+    working=false;return ok;
 }
 void GoProCamera::loop(){
     if(!working && reconnect && (int32_t)(millis()-retryAt.load())>=0){
@@ -90,6 +193,8 @@ void GoProCamera::loop(){
     }
 }
 void GoProCamera::runScan(){
+    const State previous=state.load();
+    auto cards=savedSnapshot();bool namesChanged=false;
     state=State::Scanning;log("Scan started: FEA6");
     portENTER_CRITICAL(&mux);foundCount=0;portEXIT_CRITICAL(&mux);
     auto* scanner=NimBLEDevice::getScan();
@@ -107,8 +212,14 @@ void GoProCamera::runScan(){
         if(foundCount<MAX_FOUND)found[foundCount++]=item;
         portEXIT_CRITICAL(&mux);
         log("Camera found: %.50s %s type=%u",item.name,item.address,item.type);
+        for(size_t j=0;j<cards.count;++j)if(matches(cards.cameras[j],item.address,item.type) && item.name[0] &&
+            strcmp(cards.cameras[j].reportedName,item.name)!=0){
+            snprintf(cards.cameras[j].reportedName,sizeof(cards.cameras[j].reportedName),"%s",item.name);namesChanged=true;
+        }
     }
-    scanner->clearResults();state=State::Offline;log("Scan complete");
+    scanner->clearResults();
+    if(namesChanged)persistSaved(cards);
+    state=linked?previous:State::Offline;log("Scan complete");
 }
 void GoProCamera::fail(const char* reason,bool retry){
     log("Connection failed: %s error=%d",reason,client?client->getLastError():0);
@@ -162,6 +273,7 @@ void GoProCamera::runConnect(){
     savedAddress=identityAddress;savedType=identityType;
     secured=true;bonded=true;state=State::Connected;
     log("Bonding success: encrypted=1 stored=1");
+    rememberPaired(identityAddress,identityType,requested);
     auto* service=client->getService(SERVICE);
     if(!service){fail("FEA6 service missing");return;}
     log("Service discovered: FEA6");
@@ -194,23 +306,30 @@ void GoProCamera::runConnect(){
     state=State::Ready;reconnect=false;retryAllowed=true;log("Control ready");
 }
 void GoProCamera::runForget(){
-    if(client && client->isConnected()){
+    const bool current=matches(removal,savedAddress,savedType);
+    if(current){reconnect=false;retryAllowed=false;}
+    if(current && client && client->isConnected()){
         client->disconnect();
         for(unsigned i=0;i<30 && linked;++i)vTaskDelay(pdMS_TO_TICKS(100));
         if(linked){log("Forget failed: disconnect timeout");state=State::Failed;return;}
     }
-    const String target=identityAddress.length()?identityAddress:savedAddress;
-    const uint8_t type=identityAddress.length()?identityType:savedType;
-    if(target.length()){
-        if(protectedAddress.equalsIgnoreCase(target)){fail("Refused protected bond deletion");return;}
-        NimBLEAddress address(target.c_str(),type);
-        if(NimBLEDevice::isBonded(address) && !NimBLEDevice::deleteBond(address)){
-            fail("GoPro bond deletion failed");return;
-        }
+    if(protectedAddress.equalsIgnoreCase(removal.address)){log("Refused protected bond deletion");return;}
+    NimBLEAddress address(removal.address,removal.type);
+    if(NimBLEDevice::isBonded(address) && !NimBLEDevice::deleteBond(address)){
+        log("GoPro bond deletion failed");return;
     }
-    prefs.remove("address");prefs.remove("type");prefs.remove("identity");prefs.remove("idtype");
-    savedAddress="";identityAddress="";secured=false;bonded=false;state=State::Offline;
-    log("GoPro pairing forgotten; other bonds untouched");
+    auto cards=savedSnapshot();
+    for(size_t i=0;i<cards.count;++i)if(savedId(cards.cameras[i])==savedId(removal)){
+        for(size_t j=i+1;j<cards.count;++j)cards.cameras[j-1]=cards.cameras[j];
+        cards.cameras[--cards.count]=SavedCamera{};break;
+    }
+    if(!persistSaved(cards))return;
+    if(current){
+        prefs.remove("address");prefs.remove("type");prefs.remove("identity");prefs.remove("idtype");
+        savedAddress="";identityAddress="";secured=false;bonded=false;state=State::Offline;
+        portENTER_CRITICAL(&mux);activeAddress[0]=0;portEXIT_CRITICAL(&mux);
+    }
+    log("Saved GoPro removed; other cameras and bonds untouched");
 }
 void GoProCamera::response(const uint8_t* data,size_t len){
     if(!len)return;
@@ -278,8 +397,25 @@ String GoProCamera::escape(const char* value){
 String GoProCamera::statusJson(){
     static const char* names[]={"Offline","Scanning","Connecting","Pairing","Connected","Control ready","Connection failed"};
     String out="{\"status\":\""+String(names[(unsigned)state.load()])+"\",\"busy\":"+(working?String("true"):String("false"))+",\"connected\":"+(linked?String("true"):String("false"))+",\"bonded\":"+(bonded?String("true"):String("false"))+",\"encrypted\":"+(secured?String("true"):String("false"))+",\"cameras\":[";
+    const auto cards=savedSnapshot();
+    char active[18];uint8_t type;
+    portENTER_CRITICAL(&mux);memcpy(active,activeAddress,sizeof(active));type=activeType;portEXIT_CRITICAL(&mux);
+    const bool connected=linked.load(), encrypted=secured.load(), hasBond=bonded.load();
     Found copy[MAX_FOUND];size_t count;
     portENTER_CRITICAL(&mux);memcpy(copy,found,sizeof(found));count=foundCount;portEXIT_CRITICAL(&mux);
-    for(size_t i=0;i<count;++i){if(i)out+=',';out+="{\"name\":\""+escape(copy[i].name)+"\",\"address\":\""+String(copy[i].address)+"\",\"index\":"+String(i)+"}";}
-    return out+"]}";
+    for(size_t i=0;i<count;++i){
+        bool known=false;
+        for(size_t j=0;j<cards.count;++j)if(matches(cards.cameras[j],copy[i].address,copy[i].type))known=true;
+        if(i)out+=',';
+        out+="{\"name\":\""+escape(copy[i].name)+"\",\"address\":\""+String(copy[i].address)+"\",\"index\":"+String(i)+",\"saved\":"+(known?String("true"):String("false"))+"}";
+    }
+    out+="],\"savedCameras\":[";
+    for(size_t i=0;i<cards.count;++i){
+        const auto& card=cards.cameras[i];
+        const bool activeCard=matches(card,active,type), online=activeCard && connected;
+        if(i)out+=',';
+        out+="{\"id\":\""+savedId(card)+"\",\"address\":\""+String(card.address)+"\",\"reportedName\":\""+escape(card.reportedName)+"\",\"friendlyName\":\""+escape(card.friendlyName)+"\",\"connected\":"+(online?String("true"):String("false"));
+        out+=",\"bonded\":"+(online&&hasBond?String("true"):String("false"))+",\"encrypted\":"+(online&&encrypted?String("true"):String("false"))+",\"controlReady\":"+(online&&encrypted&&hardwareReady?String("true"):String("false"))+"}";
+    }
+    return out+"],\"savedListError\":"+(savedListError?String("true"):String("false"))+"}";
 }

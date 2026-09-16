@@ -12,7 +12,9 @@ public:
     void loop();
     bool scan();
     bool connectDiscovered(unsigned index);
-    bool forget();
+    bool forget(const String& id);
+    bool connectSaved(const String& id);
+    bool renameSaved(const String& id, const String& name);
     bool busy() const { return working.load(); }
     String statusJson();
     String connectionLog();
@@ -20,6 +22,24 @@ private:
     enum class State { Offline, Scanning, Connecting, Pairing, Connected, Ready, Failed };
     enum class Job { Scan, Connect, Forget };
     struct Found { char name[64]; char address[18]; uint8_t type; };
+    struct SavedCamera {
+        char address[18]{};
+        uint8_t type=0;
+        char advertisedAddress[18]{};
+        uint8_t advertisedType=0;
+        char reportedName[64]{};
+        char friendlyName[49]{};
+    };
+    static constexpr size_t MAX_SAVED=8;
+    struct SavedList {
+        uint32_t version=1;
+        uint32_t count=0;
+        SavedCamera cameras[MAX_SAVED]{};
+    } savedList;
+    SavedCamera removal{};
+    char activeAddress[18]{};
+    uint8_t activeType=0;
+    std::atomic<bool> savedListAvailable{true}, savedListError{false};
     struct Entry { uint32_t ms, sequence; char text[120]; };
     static constexpr size_t LOG_SIZE=64, MAX_FOUND=16;
     Entry entries[LOG_SIZE]{};
@@ -43,6 +63,14 @@ private:
     uint8_t responsePrefix[2]{}, responseSequence=0;
     bool launch(Job value);
     static void task(void* context);
+    void loadSaved();
+    SavedList savedSnapshot();
+    bool persistSaved(const SavedList& value);
+    bool findSaved(const String& id, SavedCamera& value);
+    void rememberPaired(const String& address, uint8_t type, const Found& discovered);
+    bool prepareConnect();
+    static bool matches(const SavedCamera& value, const String& address, uint8_t type);
+    static String savedId(const SavedCamera& value);
     void runScan();
     void runConnect();
     void runForget();

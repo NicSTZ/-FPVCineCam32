@@ -21,10 +21,11 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <div class=card id=goproCard hidden><h3>GoPro</h3>
 <p id=gpStatus role=status>Offline</p>
 <p class=muted>For first pairing, open Connect Device / GoPro Quik App on the camera.</p>
-<button id=gpScan onclick=gpAction('scan')>Scan for GoPro</button>
+<h4>Saved cameras</h4><div id=gpSaved></div>
+<p id=gpStorageError class=warn hidden>Saved camera list could not be read or saved. Copy the log before restarting.</p>
+<button id=gpScan onclick=gpAction('scan')>Scan for another GoPro</button>
 <select id=gpCameras aria-label="Discovered GoPro cameras"></select>
-<button id=gpConnect onclick=gpAction('connect')>Connect</button>
-<button id=gpForget onclick=gpAction('forget')>Forget GoPro pairing</button>
+<button id=gpConnect onclick=gpAction('connect')>Add camera</button>
 <p id=gpMessage class=muted role=status></p>
 <button id=gpCopy onclick=copyGoProLog()>Copy log</button>
 <textarea id=gpLog readonly aria-label="GoPro connection log" hidden style="box-sizing:border-box;width:100%;height:180px;background:#111;color:#eee"></textarea>
@@ -104,27 +105,56 @@ async function saveCamera(){
 }
 for(let i=1;i<=16;i++){const o=document.createElement('option');o.value=i;o.textContent='CH'+i;el('ch').appendChild(o)}
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}
-let gpRequestPending=false, gpList='';
+let gpRequestPending=false, gpList='', gpCards='';
 function drawGoPro(g){
   el('gpStatus').textContent=g.status;
-  const list=JSON.stringify(g.cameras);
+  el('gpStorageError').hidden=!g.savedListError;
+  const blocked=g.busy || gpRequestPending || cameraSavePending;
+  const discoveries=g.cameras.filter(c=>!c.saved);
+  const list=JSON.stringify(discoveries);
   if(list!==gpList){
     gpList=list;el('gpCameras').replaceChildren();
-    g.cameras.forEach(c=>{const option=document.createElement('option');option.value=c.index;option.textContent=c.name||('GoPro '+c.address);el('gpCameras').appendChild(option)});
+    discoveries.forEach(c=>{const option=document.createElement('option');option.value=c.index;option.textContent=c.name||('GoPro '+c.address);el('gpCameras').appendChild(option)});
   }
-  el('gpScan').disabled=g.busy || g.connected || gpRequestPending || cameraSavePending;
-  el('gpConnect').disabled=g.busy || g.connected || !g.cameras.length || gpRequestPending || cameraSavePending;
-  el('gpForget').disabled=g.busy || gpRequestPending || cameraSavePending;
+  el('gpScan').disabled=blocked;
+  el('gpConnect').disabled=blocked || !discoveries.length;
+  el('gpCameras').disabled=blocked || !discoveries.length;
+  const cards=JSON.stringify([g.savedCameras,blocked]);
+  if(cards===gpCards)return;
+  gpCards=cards;el('gpSaved').replaceChildren();
+  if(!g.savedCameras.length)el('gpSaved').textContent='No saved GoPros yet.';
+  g.savedCameras.forEach(c=>{
+    const card=document.createElement('div');card.className='card';
+    function text(tag,value,css){const node=document.createElement(tag);node.textContent=value;if(css)node.className=css;card.appendChild(node);return node;}
+    text('h4',c.friendlyName||c.reportedName||'Saved GoPro');
+    text('p',c.reportedName||'Camera name not captured','muted');
+    text('small',c.address,'muted');
+    text('p',c.connected?'CONNECTED':'DISCONNECTED','statusBadge '+(c.connected?'statusOnline':'statusOffline'));
+    function button(label,action,disabled=blocked){const node=text('button',label);node.disabled=disabled;node.onclick=action;}
+    if(c.connected){
+      text('p',`Bonded: ${c.bonded?'Yes':'No'} | Encrypted: ${c.encrypted?'Yes':'No'} | Control: ${c.controlReady?'Ready':'Not ready'}`);
+      button('TEST REC',null,true);button('TEST STOP',null,true);
+      text('p','Recording control not implemented yet.','muted');
+    }else button('Connect',()=>gpAction('connectSaved',{id:c.id}));
+    button('Rename',()=>{
+      const name=prompt('Friendly camera name (up to 48 bytes; leave blank to use camera name)',c.friendlyName);
+      if(name!==null)gpAction('rename',{id:c.id,name:name.trim()});
+    });
+    button('Forget',()=>{if(confirm('Forget '+(c.friendlyName||c.reportedName||c.address)+' and its pairing?'))gpAction('forget',{id:c.id});});
+    el('gpSaved').appendChild(card);
+  });
 }
-async function gpAction(action){
+async function gpAction(action,params={}){
   if(gpRequestPending || cameraSavePending)return;
   gpRequestPending=true;
-  ['gpScan','gpConnect','gpForget'].forEach(id=>el(id).disabled=true);
+  ['gpScan','gpConnect'].forEach(id=>el(id).disabled=true);
+  el('gpSaved').querySelectorAll('button').forEach(button=>button.disabled=true);
+  if(action==='connect')params.index=el('gpCameras').value;
   try{
-    await api('/api/gopro/'+action,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'index='+encodeURIComponent(el('gpCameras').value)});
+    await api('/api/gopro/'+action,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(params).toString()});
     el('gpMessage').textContent='';
   }catch(e){el('gpMessage').textContent='Request failed: '+e.message;}
-  finally{gpRequestPending=false;refresh();}
+  finally{gpRequestPending=false;gpCards='';refresh();}
 }
 async function copyGoProLog(){
   el('gpCopy').disabled=true;
@@ -255,7 +285,17 @@ void WebUi::routes(){
     });
     server.on("/api/gopro/forget",HTTP_POST,[this](){
         if(!goProAvailable())return;
-        const bool ok=gp->forget();server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+        const bool ok=gp->forget(server.arg("id"));server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+    });
+    server.on("/api/gopro/connectSaved",HTTP_POST,[this](){
+        if(!goProAvailable())return;
+        const bool ok=gp->connectSaved(server.arg("id"));
+        server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+    });
+    server.on("/api/gopro/rename",HTTP_POST,[this](){
+        if(!goProAvailable())return;
+        const bool ok=gp->renameSaved(server.arg("id"),server.arg("name"));
+        server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
     });
     server.on("/api/gopro/log",HTTP_GET,[this](){
         if(!goProAvailable())return;
