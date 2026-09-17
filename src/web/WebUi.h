@@ -4,13 +4,12 @@
 #include "../config/Settings.h"
 #include "../camera/BlackmagicCamera.h"
 #include "../camera/GoProCamera.h"
-#include "../camera/DjiActionCamera.h"
 #include "../msp/MspClient.h"
 
 class WebUi {
 public:
-    WebUi(AppSettings& settings, SettingsStore& store, BlackmagicCamera& camera, MspClient& msp, GoProCamera* goPro, DjiActionCamera* djiCamera)
-      : s(settings), prefs(store), cam(camera), mspClient(msp), server(80), savedCamera(settings.selectedCamera), gp(goPro), dji(djiCamera) {}
+    WebUi(AppSettings& settings, SettingsStore& store, BlackmagicCamera& camera, MspClient& msp, GoProCamera* goPro)
+      : s(settings), prefs(store), cam(camera), mspClient(msp), server(80), savedCamera(settings.selectedCamera), gp(goPro) {}
     void begin(const String& apName);
     void loop();
     bool active() const { return running; }
@@ -22,9 +21,7 @@ private:
     String savedCamera;
     bool restartRequested=false; uint32_t restartAtMs=0;
     GoProCamera* gp;
-    DjiActionCamera* dji;
     bool goProAvailable();
-    bool djiAvailable();
     bool cameraAvailable();
     void routes();
     String statusJson();
