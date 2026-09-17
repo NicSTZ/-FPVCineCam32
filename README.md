@@ -1,3 +1,32 @@
+# FPVCineCam32 v0.12.0
+
+**FPVCineCam32 v0.12.0 — Proven Blackmagic + GoPro Baseline**
+
+Release preparation based on hardware-proven source `d64e1e8aaf6ea261cef452a3534f52255d580293` and published build `de69a0b`. This version changes release text/documentation only. The v0.12.0 package awaits Nic’s final hardware sanity check; no Git tag or GitHub release has been created.
+
+## Hardware-verified capabilities
+
+- **Blackmagic:** pairing/reconnect; TX16S REC/STOP; authoritative REC/STBY with no false REC without media; active-media detection; remaining record time; DJI/Betaflight OSD.
+- **GoPro:** secure pairing/bonding and persistent reconnect; multiple saved GoPros with one active reconnect target; targeted Forget; TX16S and Web UI REC/STOP; camera-reported REC/STBY, battery percentage and remaining video time; DJI/Betaflight OSD; switching active GoPros and switching between GoPro and Blackmagic.
+- **System:** shared Betaflight RC mapping; GPIO6 RX / GPIO7 TX MSP at 115200 baud; camera system selector; setup Wi-Fi with the existing 90-second idle behavior; GoPro Copy log and internal `/api/status` diagnostics retained. GoPro time is `2h:28` in the Web UI and `2H:28` in OSD.
+
+The known occasional Blackmagic extra restart after camera-system switching remains unchanged. Custom-text OSD requires a supported DJI system; do not rely on it on Vista/original Air Unit with Goggles V1/V2.
+
+## GoPro power / reconnect
+
+FPVCineCam32 reconnects automatically when the selected GoPro is powered on and available over Bluetooth. If the camera has fully powered down and is no longer advertising over BLE, power the GoPro on normally before use. FPVCineCam32 does not implement BLE wake/power-on.
+
+## Release package
+
+The installer displays **Firmware v0.12.0**. Flash without erasing to preserve existing bonds and configuration. Rollback before this release preparation remains `de69a0b`; the earlier Blackmagic-only v0.10.10 release is preserved. v0.11.x is intentionally skipped because it was associated with abandoned development work.
+
+Final sanity check: confirm the installer version, retained GoPro reconnect plus one TX16S REC/STOP cycle and OSD, then switch to Blackmagic and repeat REC/STOP with media remaining visible.
+
+---
+
+<details>
+<summary>Historical milestone notes (retained; not current release instructions)</summary>
+
 # FPVCineCam32 v0.10.10 ACTIVE MEDIA FIX
 
 Targeted correction on top of v0.10.9.
@@ -83,3 +112,5 @@ GoPro camera-reported seconds are unchanged. Web UI and Custom Message 2 now use
 Blackmagic outgoing REC/STOP write success no longer sets recording or its REC/ready label. The unchanged Incoming Camera Control decoder uses Media category 10, Transport Mode parameter 1, int8 `value[0]`: mode 2 is Record; Preview/Play are not recording. Existing operation 0/2 acceptance and all remaining-time/active-media decoding remain unchanged. No-media REC commands are still sent; only camera telemetry may assert REC. [Official Blackmagic Camera Control protocol](https://documents.blackmagicdesign.com/DeveloperManuals/BlackmagicCameraControl.pdf).
 
 Hardware check: use the mapped TX16 switch on each backend, verify a ready/reconnected GoPro receives the initial switch position once, compare `Xh:XX` in UI/goggles, then test Blackmagic REC with no media (must remain STBY) and with media (REC/STOP follows actual camera state). Flash without erasing to retain bonds/settings. This build remains software-validated until those physical checks pass.
+
+</details>

@@ -91,7 +91,7 @@ static String goProMediaText(const GoProCamera::Snapshot& c) {
 void setup() {
     Serial.begin(115200);
     delay(250);
-    diagLog("BOOT: FPVCineCam32 v0.10.10 ACTIVE MEDIA FIX");
+    diagLog("BOOT: FPVCineCam32 v0.12.0");
     Serial.printf("[%8lu ms] resetReason=%d freeHeap=%u\n", (unsigned long)millis(), (int)esp_reset_reason(), (unsigned)ESP.getFreeHeap());
     diagLog("SETTINGS: begin");
     settingsStore.begin();
