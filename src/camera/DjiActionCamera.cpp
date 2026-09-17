@@ -1,18 +1,73 @@
 #include "DjiActionCamera.h"
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+#include <esp_system.h>
+
 DjiActionCamera* DjiActionCamera::instance=nullptr;
-static const NimBLEUUID DJI_SERVICE("0000fff0-0000-1000-8000-00805f9b34fb");
-static const NimBLEUUID DJI_NOTIFY("0000fff4-0000-1000-8000-00805f9b34fb");
-static const NimBLEUUID DJI_WRITE("0000fff5-0000-1000-8000-00805f9b34fb");
+static const NimBLEUUID DJI_SERVICE((uint16_t)0xFFF0);
+static const NimBLEUUID DJI_NOTIFY((uint16_t)0xFFF4);
+static const NimBLEUUID DJI_WRITE((uint16_t)0xFFF5);
+
 DjiActionCamera::DjiActionCamera():callbacks(this){instance=this;}
-void DjiActionCamera::begin(){NimBLEDevice::init("FPVCineCam32");NimBLEDevice::setPower(3);NimBLEDevice::setSecurityAuth(true,false,false);NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);camState.status="DJI IDLE";camState.model="DJI Action (R SDK transport)";}
-bool DjiActionCamera::startScan(String& j){auto* s=NimBLEDevice::getScan();s->setActiveScan(true);s->setInterval(60);s->setWindow(60);auto r=s->getResults(3500,false);j="[";bool first=true;for(int i=0;i<r.getCount();i++){auto* d=r.getDevice(i);if(!d->isAdvertisingService(DJI_SERVICE))continue;if(!first)j+=',';first=false;String n=d->getName().c_str(),a=d->getAddress().toString().c_str();j+="{\"name\":\""+n+"\",\"address\":\""+a+"\",\"type\":"+String(d->getAddress().getType())+"}";}j+="]";s->clearResults();return true;}
-bool DjiActionCamera::connectTo(const String&a,uint8_t t){if(!a.length())return false;requestedAddress=a;requestedAddressType=t;connectRequested=true;camState.status="DJI CONNECT QUEUED";return true;}
-void DjiActionCamera::connectTaskThunk(void* a){auto*self=(DjiActionCamera*)a;String x=self->requestedAddress;uint8_t t=self->requestedAddressType;self->connectRequested=false;self->performConnect(x,t);self->connectTaskRunning=false;vTaskDelete(nullptr);}
-void DjiActionCamera::performConnect(const String&a,uint8_t t){if(client&&client->isConnected())client->disconnect();notifyChar=writeChar=nullptr;camState.connected=false;camState.controlReady=false;camState.status="DJI CONNECTING";if(!client){client=NimBLEDevice::createClient();client->setClientCallbacks(&callbacks,false);client->setConnectTimeout(8000);}NimBLEAddress ad(a.c_str(),t);if(!client->connect(ad,true,false,false)){camState.status="DJI CONNECT FAIL";return;}auto* svc=client->getService(DJI_SERVICE);if(!svc){camState.status="NO DJI RSDK SERVICE";client->disconnect();return;}notifyChar=svc->getCharacteristic(DJI_NOTIFY);writeChar=svc->getCharacteristic(DJI_WRITE);bool n=false;if(notifyChar){if(notifyChar->canNotify())n=notifyChar->subscribe(true,notifyCb);else if(notifyChar->canIndicate())n=notifyChar->subscribe(false,notifyCb);}camState.connected=true;camState.paired=true;camState.telemetryReady=n;camState.controlReady=false;camState.status=(writeChar&&notifyChar)?"DJI RSDK LINK - AUTH PENDING":"DJI RSDK CHAR MISSING";}
-bool DjiActionCamera::setRecording(bool on){camState.lastCommand=on?"REC":"STOP";camState.lastWrite="DJI RSDK AUTH/COMMAND PENDING";camState.status="DJI RSDK CONTROL NOT YET ENABLED";return false;}
-void DjiActionCamera::notifyCb(NimBLERemoteCharacteristic*,uint8_t* d,size_t l,bool){if(!instance)return;instance->camState.telemetryReady=true;char b[48]={};size_t p=0;for(size_t i=0;i<l&&i<12&&p+3<sizeof(b);i++)p+=snprintf(b+p,sizeof(b)-p,"%s%02X",i?" ":"",d[i]);instance->camState.lastIncoming=String(b);}
-void DjiActionCamera::loop(){if(connectRequested&&!connectTaskRunning){connectTaskRunning=true;if(xTaskCreate(connectTaskThunk,"dji-connect",6144,this,1,nullptr)!=pdPASS){connectTaskRunning=false;connectRequested=false;camState.status="CONNECT TASK FAIL";}}if(reconnectWanted&&!connectTaskRunning&&!connectRequested&&millis()>=nextReconnectMs&&savedAddress.length()){reconnectWanted=false;connectTo(savedAddress,savedAddressType);}}
-void DjiActionCamera::disconnect(){if(client&&client->isConnected())client->disconnect();}
-void DjiActionCamera::forgetPairing(){disconnect();NimBLEDevice::deleteAllBonds();savedAddress="";camState=CameraState{};camState.status="DJI PAIRING CLEARED";}
-void DjiActionCamera::ClientCallbacks::onConnect(NimBLEClient*){o->camState.connected=true;o->camState.status="DJI LINK UP";}
-void DjiActionCamera::ClientCallbacks::onDisconnect(NimBLEClient*,int r){o->camState.connected=false;o->camState.controlReady=false;o->camState.telemetryReady=false;o->camState.status="DJI OFFLINE ("+String(r)+")";if(o->savedAddress.length()){o->reconnectWanted=true;o->nextReconnectMs=millis()+2500;}}
+uint16_t DjiActionCamera::read16(const uint8_t*p){return (uint16_t)p[0]|((uint16_t)p[1]<<8);}
+uint32_t DjiActionCamera::read32(const uint8_t*p){return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
+uint16_t DjiActionCamera::crc16(const uint8_t*d,size_t n){uint16_t c=0x3AA3;while(n--){c^=*d++;for(int i=0;i<8;i++)c=(c&1)?(uint16_t)((c>>1)^0xA001):(uint16_t)(c>>1);}return c;}
+uint32_t DjiActionCamera::crc32(const uint8_t*d,size_t n){uint32_t c=0x00003AA3;while(n--){c^=*d++;for(int i=0;i<8;i++)c=(c&1)?((c>>1)^0xEDB88320UL):(c>>1);}return c;}
+void DjiActionCamera::log(const char*fmt,...){char b[180];va_list a;va_start(a,fmt);vsnprintf(b,sizeof(b),fmt,a);va_end(a);Serial.printf("[DJI %8lu] %s\n",(unsigned long)millis(),b);logText+=String(millis())+" "+b+"\n";if(logText.length()>7000)logText.remove(0,logText.length()-6000);}
+
+void DjiActionCamera::begin(){
+    prefs.begin("fpvcam-dji",false);
+    savedAddress=prefs.getString("address",savedAddress);savedAddressType=prefs.getUChar("type",savedAddressType);approvedBefore=prefs.getBool("approved",false);
+    if(!NimBLEDevice::init("FPVCineCam32")){camState.status="DJI BLE INIT FAIL";return;}
+    NimBLEDevice::setPower(3);
+    camState.status="DJI OFFLINE";camState.model="DJI Osmo";camState.protocolVersion="DJI R SDK";
+    if(savedAddress.length()){requestedAddress=savedAddress;requestedAddressType=savedAddressType;reconnectWanted=true;nextReconnectMs=millis()+500;}
+}
+
+bool DjiActionCamera::startScan(String&j){
+    auto*s=NimBLEDevice::getScan();s->setActiveScan(true);s->setInterval(60);s->setWindow(45);auto r=s->getResults(4000,false);j="[";bool first=true;
+    for(int i=0;i<r.getCount();i++){auto*d=r.getDevice(i);if(!d->isAdvertisingService(DJI_SERVICE))continue;if(!first)j+=',';first=false;String n=d->getName().c_str(),a=d->getAddress().toString().c_str();j+="{\"name\":\""+n+"\",\"address\":\""+a+"\",\"type\":"+String(d->getAddress().getType())+"}";}
+    j+="]";s->clearResults();return true;
+}
+bool DjiActionCamera::connectTo(const String&a,uint8_t t){if(!a.length()||connectTaskRunning)return false;requestedAddress=a;requestedAddressType=t;connectRequested=true;camState.status="DJI CONNECT QUEUED";return true;}
+void DjiActionCamera::connectTaskThunk(void*a){auto*self=(DjiActionCamera*)a;String x=self->requestedAddress;uint8_t t=self->requestedAddressType;self->connectRequested=false;self->performConnect(x,t);self->connectTaskRunning=false;vTaskDelete(nullptr);}
+void DjiActionCamera::performConnect(const String&a,uint8_t t){
+    if(client&&client->isConnected())client->disconnect();notifyChar=writeChar=nullptr;rxLen=0;camState.connected=false;camState.controlReady=false;camState.ready=false;camState.status="DJI CONNECTING";
+    if(!client){client=NimBLEDevice::createClient();if(!client){camState.status="DJI CLIENT FAIL";return;}client->setClientCallbacks(&callbacks,false);client->setConnectTimeout(8000);}
+    NimBLEAddress ad(a.c_str(),t);if(!client->connect(ad,true,false,false)){camState.status="DJI CONNECT FAIL";log("BLE connect failed error=%d",client->getLastError());return;}
+    auto*svc=client->getService(DJI_SERVICE);if(!svc){camState.status="DJI SERVICE MISSING";client->disconnect();return;}notifyChar=svc->getCharacteristic(DJI_NOTIFY);writeChar=svc->getCharacteristic(DJI_WRITE);
+    if(!notifyChar||!writeChar){camState.status="DJI CHAR MISSING";client->disconnect();return;}
+    bool n=notifyChar->canNotify()?notifyChar->subscribe(true,notifyCb):(notifyChar->canIndicate()?notifyChar->subscribe(false,notifyCb):false);if(!n){camState.status="DJI NOTIFY FAIL";client->disconnect();return;}
+    const bool known=approvedBefore&&a.equalsIgnoreCase(savedAddress)&&t==savedAddressType;if(!known)approvedBefore=false;
+    savedAddress=a;savedAddressType=t;prefs.putString("address",a);prefs.putUChar("type",t);camState.connected=true;camState.paired=approvedBefore;camState.status="DJI APPROVAL";sendConnectionRequest();
+}
+
+bool DjiActionCamera::sendFrame(uint8_t set,uint8_t id,uint8_t type,const uint8_t*p,size_t pn,uint16_t fixedSeq){
+    if(!writeChar||!client||!client->isConnected()||pn>220)return false;uint8_t f[256]{};size_t total=18+pn;uint16_t s=fixedSeq?fixedSeq:++seq;
+    f[0]=0xAA;f[1]=total&0xFF;f[2]=(total>>8)&0x03;f[3]=type;f[8]=s&0xFF;f[9]=s>>8;uint16_t h=crc16(f,10);f[10]=h&0xFF;f[11]=h>>8;f[12]=set;f[13]=id;if(pn)memcpy(f+14,p,pn);uint32_t tail=crc32(f,14+pn);f[14+pn]=tail&0xFF;f[15+pn]=(tail>>8)&0xFF;f[16+pn]=(tail>>16)&0xFF;f[17+pn]=(tail>>24)&0xFF;
+    bool ok=writeChar->writeValue(f,total,true);log("TX %02X/%02X type=%02X seq=%u %s",set,id,type,s,ok?"OK":"FAIL");return ok;
+}
+void DjiActionCamera::sendConnectionRequest(){
+    uint8_t p[33]{};uint32_t controllerId=0x12345678;p[0]=controllerId&0xFF;p[1]=controllerId>>8;p[2]=controllerId>>16;p[3]=controllerId>>24;p[4]=6;uint64_t mac=ESP.getEfuseMac();for(int i=0;i<6;i++)p[5+i]=(mac>>(8*i))&0xFF;p[26]=approvedBefore?0:1;uint16_t verify=(uint16_t)(esp_random()%10000);p[27]=verify&0xFF;p[28]=verify>>8;camState.lastCommand="DJI CONNECT";camState.lastWrite=sendFrame(0x00,0x19,0x02,p,sizeof(p))?"sent":"failed";
+}
+void DjiActionCamera::sendConnectionResponse(uint16_t incomingSeq){uint8_t p[9]{};uint32_t controllerId=0x12345678;p[0]=controllerId&0xFF;p[1]=controllerId>>8;p[2]=controllerId>>16;p[3]=controllerId>>24;p[4]=0;sendFrame(0x00,0x19,0x20,p,sizeof(p),incomingSeq);}
+void DjiActionCamera::subscribeStatus(){uint8_t p[6]={3,20,0,0,0,0};if(sendFrame(0x1D,0x05,0x01,p,sizeof(p)))camState.incomingSubscription="DJI 1D05 2Hz";}
+void DjiActionCamera::setModel(uint32_t id){cameraDeviceId=id;switch(id){case 0xFF33:camState.model="DJI Osmo Action 4";break;case 0xFF44:camState.model="DJI Osmo Action 5 Pro";break;case 0xFF55:camState.model="DJI Osmo Action 6";break;case 0xFF66:camState.model="DJI Osmo 360";break;default:camState.model="DJI Osmo";break;}}
+
+void DjiActionCamera::notifyCb(NimBLERemoteCharacteristic*,uint8_t*d,size_t n,bool){if(instance)instance->handleNotify(d,n);}
+void DjiActionCamera::handleNotify(const uint8_t*d,size_t n){camState.incomingPackets++;if(rxLen+n>sizeof(rxBuf)){rxLen=0;log("RX overflow reset");}if(n>sizeof(rxBuf))return;memcpy(rxBuf+rxLen,d,n);rxLen+=n;parseFrames();}
+void DjiActionCamera::parseFrames(){while(rxLen>=3){size_t start=0;while(start<rxLen&&rxBuf[start]!=0xAA)start++;if(start){memmove(rxBuf,rxBuf+start,rxLen-start);rxLen-=start;if(rxLen<3)return;}uint16_t total=read16(rxBuf+1)&0x03FF;if(total<18||total>sizeof(rxBuf)){memmove(rxBuf,rxBuf+1,--rxLen);continue;}if(rxLen<total)return;if(crc16(rxBuf,10)!=read16(rxBuf+10)||crc32(rxBuf,total-4)!=read32(rxBuf+total-4)){log("RX CRC reject");memmove(rxBuf,rxBuf+1,--rxLen);continue;}handleFrame(rxBuf,total);memmove(rxBuf,rxBuf+total,rxLen-total);rxLen-=total;}}
+void DjiActionCamera::handleFrame(const uint8_t*f,size_t len){
+    uint8_t type=f[3],set=f[12],id=f[13];uint16_t frameSeq=read16(f+8);const uint8_t*p=f+14;size_t n=len-18;char b[48];snprintf(b,sizeof(b),"%02X/%02X type=%02X len=%u",set,id,type,(unsigned)n);camState.lastIncoming=b;log("RX %s",b);
+    if(set==0x00&&id==0x19){if((type&0x20)==0&&n>=33&&p[26]==2){setModel(read32(p));if(read16(p+27)==0){sendConnectionResponse(frameSeq);approvedBefore=true;prefs.putBool("approved",true);camState.paired=true;camState.ready=true;camState.controlReady=true;camState.status="DJI READY";subscribeStatus();}else{camState.status="DJI REJECTED";client->disconnect();}}return;}
+    if(set==0x1D&&id==0x02&&(type&0x20)==0&&n>=38){uint8_t mode=p[0],status=p[1];uint16_t recordTime=read16(p+5);bool videoMode=(mode==0x00||mode==0x01||mode==0x02||mode==0x0A||mode==0x28||mode==0x38||mode==0x3A||mode==0x41||mode==0x43||mode==0x44||mode==0x4A);camState.recording=videoMode&&status==0x03&&(recordTime>0||mode!=0x05);remainingSeconds=read32(p+23);char t[24];snprintf(t,sizeof(t),"%luH:%02lu",(unsigned long)(remainingSeconds/3600),(unsigned long)((remainingSeconds%3600)/60));camState.mediaRemaining=t;camState.batteryPercent=p[37];camState.ready=true;camState.controlReady=true;camState.status=camState.recording?"DJI REC":"DJI READY";return;}
+    if(set==0x1D&&id==0x03&&(type&0x20)&&n>=1)camState.lastWrite=p[0]==0?"DJI RECORD ACK OK":"DJI RECORD ACK FAIL";
+}
+
+bool DjiActionCamera::setRecording(bool on){if(!camState.controlReady)return false;uint8_t p[9]{};p[0]=cameraDeviceId&0xFF;p[1]=cameraDeviceId>>8;p[2]=cameraDeviceId>>16;p[3]=cameraDeviceId>>24;p[4]=on?0:1;camState.lastCommand=on?"REC":"STOP";camState.lastWrite=sendFrame(0x1D,0x03,0x02,p,sizeof(p))?"sent":"failed";return camState.lastWrite=="sent";}
+void DjiActionCamera::loop(){if(connectRequested&&!connectTaskRunning){connectTaskRunning=true;if(xTaskCreate(connectTaskThunk,"dji-connect",8192,this,1,nullptr)!=pdPASS){connectTaskRunning=false;connectRequested=false;camState.status="DJI TASK FAIL";}}if(reconnectWanted&&!connectTaskRunning&&!connectRequested&&(int32_t)(millis()-nextReconnectMs)>=0&&savedAddress.length()){reconnectWanted=false;connectTo(savedAddress,savedAddressType);}}
+void DjiActionCamera::disconnect(){reconnectWanted=false;if(client&&client->isConnected())client->disconnect();}
+void DjiActionCamera::forgetPairing(){disconnect();prefs.remove("address");prefs.remove("type");prefs.remove("approved");savedAddress="";approvedBefore=false;camState=CameraState{};camState.status="DJI OFFLINE";camState.model="DJI Osmo";camState.protocolVersion="DJI R SDK";log("DJI saved target cleared; unrelated BLE bonds untouched");}
+void DjiActionCamera::ClientCallbacks::onConnect(NimBLEClient*){o->camState.connected=true;o->camState.status="DJI BLE LINK";}
+void DjiActionCamera::ClientCallbacks::onDisconnect(NimBLEClient*,int r){o->camState.connected=false;o->camState.controlReady=false;o->camState.ready=false;o->camState.recording=false;o->camState.status="DJI OFFLINE";o->log("BLE disconnected reason=%d",r);if(o->savedAddress.length()){o->reconnectWanted=true;o->nextReconnectMs=millis()+3000;}}
