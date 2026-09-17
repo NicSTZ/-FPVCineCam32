@@ -90,6 +90,17 @@ static String goProMediaText(const GoProCamera::Snapshot& c) {
     return "BAT "+battery+" SD "+media;
 }
 
+static String djiStatusText(const CameraState& c) {
+    if(!c.connected) return "CAM OFF";
+    if(!c.controlReady) return "CAM CONNECT";
+    return c.recording ? "CAM REC" : "CAM READY";
+}
+static String djiMediaText(const CameraState& c) {
+    const String battery=c.batteryPercent>=0?String(c.batteryPercent)+"%":String("--");
+    const String media=(c.mediaRemaining.length() && c.mediaRemaining!="--")?c.mediaRemaining:String("--");
+    return "BAT "+battery+" SD "+media;
+}
+
 void setup() {
     Serial.begin(115200);
     delay(250);
@@ -170,20 +181,24 @@ void loop() {
     // When the camera control link comes back, re-apply the physical switch position once.
     // This avoids losing a REC/STOP state across camera reconnect/authentication.
     const bool useGoPro = settings.selectedCamera == "gopro" && gopro;
-    const bool controlReady = useGoPro ? gopro->snapshot().controlReady : c.controlReady;
+    const bool useDji = settings.selectedCamera == "dji" && dji;
+    const bool controlReady = useGoPro ? gopro->snapshot().controlReady : (useDji ? dji->state().controlReady : c.controlReady);
     const String goProTarget = useGoPro ? gopro->activeCameraId() : String("");
     if (controlReady && (!lastControlReady || (useGoPro && goProTarget != lastGoProRcTarget))) recordMapInitialized = false;
     lastControlReady = controlReady;
     lastGoProRcTarget = goProTarget;
 
-    if ((settings.selectedCamera == "blackmagic" || useGoPro) && mappingValid && controlReady) {
+    if ((settings.selectedCamera == "blackmagic" || useGoPro || useDji) && mappingValid && controlReady) {
         const bool changed = !recordMapInitialized || desiredRecordState != lastAppliedRecordState;
         if (changed && now-lastRecordAttempt >= 300) {
             lastRecordAttempt = now;
-            const bool accepted = useGoPro ? gopro->setShutter(goProTarget, desiredRecordState)
-                                          : camera.setRecording(desiredRecordState);
+            bool accepted=false;
+            if(useGoPro) accepted=gopro->setShutter(goProTarget, desiredRecordState);
+            else if(useDji) accepted=dji->setRecording(desiredRecordState);
+            else accepted=camera.setRecording(desiredRecordState);
             if (accepted) {
                 if (useGoPro) diagLog(desiredRecordState ? "RC -> GoPro REC" : "RC -> GoPro STOP");
+                if (useDji) diagLog(desiredRecordState ? "RC -> DJI REC" : "RC -> DJI STOP");
                 lastAppliedRecordState = desiredRecordState;
                 recordMapInitialized = true;
             }
@@ -197,6 +212,11 @@ void loop() {
             // Configurator Custom Message 1 and 2 use internal slots 0 and 1.
             msp.setCustomText(0,goProStatusText(state));
             msp.setCustomText(1,goProMediaText(state));
+        }else if(dji){
+            const CameraState& state=dji->state();
+            // Use the same two operator-facing OSD slots as GoPro.
+            msp.setCustomText(0,djiStatusText(state));
+            msp.setCustomText(1,djiMediaText(state));
         }else{
         msp.setCustomText(settings.osdSlot, osdStatusText());
         // The next Custom Message slot carries decoded Pocket 4K remaining
