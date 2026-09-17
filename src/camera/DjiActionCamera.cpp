@@ -20,6 +20,7 @@ void DjiActionCamera::begin(){
     prefs.begin("fpvcam-dji",false);
     savedAddress=prefs.getString("address",savedAddress);savedAddressType=prefs.getUChar("type",savedAddressType);approvedBefore=prefs.getBool("approved",false);
     if(!NimBLEDevice::init("FPVCineCam32")){camState.status="DJI BLE INIT FAIL";return;}
+    NimBLEDevice::setMTU(500);
     NimBLEDevice::setPower(3);
     camState.status="DJI OFFLINE";camState.model="DJI Osmo";camState.protocolVersion="DJI R SDK";
     if(savedAddress.length()){requestedAddress=savedAddress;requestedAddressType=savedAddressType;reconnectWanted=true;nextReconnectMs=millis()+500;}
@@ -63,22 +64,29 @@ void DjiActionCamera::setModel(uint32_t id){cameraDeviceId=id;switch(id){case 0x
 void DjiActionCamera::notifyCb(NimBLERemoteCharacteristic*,uint8_t*d,size_t n,bool){if(instance)instance->handleNotify(d,n);}
 void DjiActionCamera::handleNotify(const uint8_t*d,size_t n){
     camState.incomingPackets++;
-    static uint32_t notifySamples=0;
-    if(notifySamples<8){char hex[73]{};size_t shown=n<24?n:24;for(size_t i=0;i<shown;i++)snprintf(hex+i*3,sizeof(hex)-i*3,"%02X ",d[i]);log("RX notify n=%u head=%s",(unsigned)n,hex);notifySamples++;}
-    if(rxLen+n>sizeof(rxBuf)){rxLen=0;log("RX overflow reset");}if(n>sizeof(rxBuf))return;memcpy(rxBuf+rxLen,d,n);rxLen+=n;parseFrames();
+    if(!n)return;
+    static uint32_t notifySamples=0,ignoredSamples=0;
+    if(d[0]!=0xAA){
+        if(ignoredSamples<6){char hex[73]{};size_t shown=n<24?n:24;for(size_t i=0;i<shown;i++)snprintf(hex+i*3,sizeof(hex)-i*3,"%02X ",d[i]);log("RX ignored non-DJI notify n=%u head=%s",(unsigned)n,hex);ignoredSamples++;}
+        return;
+    }
+    if(notifySamples<8){char hex[73]{};size_t shown=n<24?n:24;for(size_t i=0;i<shown;i++)snprintf(hex+i*3,sizeof(hex)-i*3,"%02X ",d[i]);log("RX DJI notify n=%u head=%s",(unsigned)n,hex);notifySamples++;}
+    rxLen=0;
+    if(n>sizeof(rxBuf)){log("RX DJI frame too large n=%u",(unsigned)n);return;}
+    memcpy(rxBuf,d,n);rxLen=n;parseFrames();
 }
 void DjiActionCamera::parseFrames(){
     static uint32_t rejectCount=0,lastRejectLogMs=0;
     while(rxLen>=3){
         size_t start=0;while(start<rxLen&&rxBuf[start]!=0xAA)start++;if(start){memmove(rxBuf,rxBuf+start,rxLen-start);rxLen-=start;if(rxLen<3)return;}
-        uint16_t total=read16(rxBuf+1)&0x03FF;if(total<18||total>sizeof(rxBuf)){memmove(rxBuf,rxBuf+1,--rxLen);continue;}if(rxLen<total)return;
+        uint16_t total=read16(rxBuf+1)&0x03FF;if(total<18||total>sizeof(rxBuf)){memmove(rxBuf,rxBuf+1,--rxLen);continue;}if(rxLen<total){log("RX DJI short frame n=%u expected=%u",(unsigned)rxLen,(unsigned)total);rxLen=0;return;}
         const uint16_t got16=read16(rxBuf+10),want16=crc16(rxBuf,10);const uint32_t got32=read32(rxBuf+total-4),want32=crc32(rxBuf,total-4);
         if(want16!=got16||want32!=got32){
             rejectCount++;const uint32_t now=millis();
             if(rejectCount<=6||now-lastRejectLogMs>=1000){char hex[73]{};size_t shown=total<24?total:24;for(size_t i=0;i<shown;i++)snprintf(hex+i*3,sizeof(hex)-i*3,"%02X ",rxBuf[i]);log("RX CRC reject #%lu len=%u c16=%04X/%04X c32=%08lX/%08lX head=%s",(unsigned long)rejectCount,(unsigned)total,(unsigned)got16,(unsigned)want16,(unsigned long)got32,(unsigned long)want32,hex);lastRejectLogMs=now;}
-            memmove(rxBuf,rxBuf+1,--rxLen);continue;
+            rxLen=0;return;
         }
-        handleFrame(rxBuf,total);memmove(rxBuf,rxBuf+total,rxLen-total);rxLen-=total;
+        handleFrame(rxBuf,total);rxLen=0;return;
     }
 }
 void DjiActionCamera::handleFrame(const uint8_t*f,size_t len){
