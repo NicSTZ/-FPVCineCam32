@@ -4,6 +4,7 @@
 #include "msp/MspClient.h"
 #include "camera/BlackmagicCamera.h"
 #include "camera/GoProCamera.h"
+#include "camera/DjiActionCamera.h"
 #include "web/WebUi.h"
 
 HardwareSerial FcSerial(1);
@@ -12,6 +13,7 @@ AppSettings settings;
 MspClient msp(FcSerial);
 BlackmagicCamera camera;
 GoProCamera* gopro = nullptr;
+DjiActionCamera* dji = nullptr;
 WebUi* web = nullptr;
 
 static constexpr int ESP_RX_PIN = 6;
@@ -108,6 +110,7 @@ void setup() {
     uint64_t mac = ESP.getEfuseMac();
     char ap[32]; snprintf(ap,sizeof(ap),"FPVCineCam32-%04X",(uint16_t)(mac&0xffff));
     if (settings.selectedCamera == "gopro") gopro = new GoProCamera();
+    if (settings.selectedCamera == "dji") dji = new DjiActionCamera();
     web = new WebUi(settings,settingsStore,camera,msp,gopro);
     Serial.printf("[%8lu ms] WIFI: starting SoftAP %s\n", (unsigned long)millis(), ap);
     web->begin(ap);
@@ -130,6 +133,7 @@ void setup() {
     }
     }
     if (gopro) gopro->begin(settings.cameraAddress);
+    if (dji) dji->begin();
     msp.requestApiVersion();
     diagLogState("setup done");
 }
@@ -138,6 +142,7 @@ void loop() {
     msp.loop();
     if (settings.selectedCamera == "blackmagic") camera.loop();
     if (gopro) gopro->loop();
+    if (dji) dji->loop();
     if(web) web->loop();
 
     const uint32_t now=millis();
