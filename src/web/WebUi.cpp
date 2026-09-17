@@ -74,7 +74,7 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 
 <script>
 const el=id=>document.getElementById(id);
-let cameraSelectionLoaded=false, cameraSavePending=false;
+let cameraSelectionLoaded=false, cameraSavePending=false, mappingControlsLoaded=false;
 function waitForRestart(expectedCamera){
   const helpTimer=setTimeout(()=>{el('restartHelp').hidden=false;},12000);
   async function probe(){
@@ -126,7 +126,7 @@ async function djiConnect(address,type){el('djiMessage').textContent='Connecting
 async function djiRec(on){try{await api('/api/dji/record',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'on='+on});}catch(e){el('djiMessage').textContent='REC/STOP failed: '+e.message;}setTimeout(refresh,300);}
 async function djiForget(){try{await api('/api/dji/forget',{method:'POST'});el('djiMessage').textContent='Saved DJI camera cleared.';}catch(e){el('djiMessage').textContent='Forget failed: '+e.message;}refresh();}
 
-function drawChannels(s){const box=el('channels');box.innerHTML='';for(let i=0;i<16;i++){const d=document.createElement('div');d.className='ch'+((i+1)==s.settings.channel?' selected':'');const v=(s.msp.channels&&i<s.msp.channels.length)?s.msp.channels[i]:0;d.innerHTML=`<b>CH${i+1}</b><span>${v||'--'}</span>`;box.appendChild(d);}const idx=s.settings.channel-1;el('selectedValue').value=(s.msp.channels&&idx>=0&&idx<s.msp.channels.length)?s.msp.channels[idx]:'--';}
+function drawChannels(s){const selectedChannel=parseInt(el('ch').value||s.settings.channel,10);const box=el('channels');box.innerHTML='';for(let i=0;i<16;i++){const d=document.createElement('div');d.className='ch'+((i+1)==selectedChannel?' selected':'');const v=(s.msp.channels&&i<s.msp.channels.length)?s.msp.channels[i]:0;d.innerHTML=`<b>CH${i+1}</b><span>${v||'--'}</span>`;box.appendChild(d);}const idx=selectedChannel-1;el('selectedValue').value=(s.msp.channels&&idx>=0&&idx<s.msp.channels.length)?s.msp.channels[idx]:'--';}
 async function refresh(){
   try{
     const s=await api('/api/status');
@@ -139,7 +139,7 @@ async function refresh(){
     }
     if(s.gopro)drawGoPro(s.gopro);if(s.dji)drawDji(s.dji);
     el('pin').style.display=s.camera.waitingPin?'block':'none';el('camSummary').textContent=cameraLine(s.camera)+(s.camera.model?` | ${s.camera.model}`:'');const linked=s.camera.connected&&s.camera.controlReady;el('camBadge').className='statusBadge '+(linked?'statusOnline':'statusOffline');el('camBadge').textContent=linked?'Camera connected':'Camera disconnected';
-    el('mspSummary').textContent=s.msp.connected?`MSP connected | API ${s.msp.api} | last RC response ${s.msp.responseMs} ms`:'MSP offline - check UART wiring and Betaflight Ports';el('mspStats').textContent=`Responses: ${s.msp.responses} | Timeouts: ${s.msp.timeouts} | Invalid frames: ${s.msp.invalidFrames}`;el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;drawChannels(s);
+    el('mspSummary').textContent=s.msp.connected?`MSP connected | API ${s.msp.api} | last RC response ${s.msp.responseMs} ms`:'MSP offline - check UART wiring and Betaflight Ports';el('mspStats').textContent=`Responses: ${s.msp.responses} | Timeouts: ${s.msp.timeouts} | Invalid frames: ${s.msp.invalidFrames}`;if(!mappingControlsLoaded){el('ch').value=s.settings.channel;el('thr').value=s.settings.threshold;el('high').value=s.settings.high?1:0;mappingControlsLoaded=true;}drawChannels(s);
   }catch(e){el('mspSummary').textContent='ESP web API unavailable'}
 }
 async function scan(){el('cams').textContent='Scanning...';try{const x=await api('/api/scan');el('cams').innerHTML='';if(!x.length){el('cams').textContent=' No Blackmagic cameras found';return}x.forEach(c=>{const b=document.createElement('button');b.textContent=(c.name||'Blackmagic')+' '+c.address;b.onclick=()=>connect(c.address,c.type);el('cams').appendChild(b)})}catch(e){el('cams').textContent='Scan error: '+e.message}}
