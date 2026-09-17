@@ -85,6 +85,15 @@ Blackmagic OSD shows REC/STBY state and remaining record time for the active med
 - If no usable media is present, the OSD will not falsely show REC.
 - Remaining record time follows the active media.
 
+## DJI notes
+
+- Wireless connection must be enabled on the camera.
+- Approve the verification code on the camera.
+- FPVCineCam32 will reconnect automatically after pairing. If it does not, restart FPVCineCam32.
+- REC/STOP is controlled from the configured Betaflight RC channel.
+- Battery level and remaining recording time are shown in the OSD where available.
+- Forget camera removes only the saved DJI camera connection.
+
 ## Setup Wi-Fi
 
 Setup Wi-Fi is temporary. If no client connects during the setup window, Wi-Fi shuts down while BLE camera control, MSP and OSD continue running. Wi-Fi returns after reboot.
