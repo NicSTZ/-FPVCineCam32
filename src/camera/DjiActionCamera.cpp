@@ -54,7 +54,7 @@ void DjiActionCamera::sendConnectionRequest(){
     const uint8_t verifyMode=approvedBefore?0:1;const uint16_t verify=(uint16_t)(esp_random()%10000);p[26]=verifyMode;p[27]=verify&0xFF;p[28]=verify>>8;
     char code[8];snprintf(code,sizeof(code),"%04u",(unsigned)verify);
     camState.lastCommand="DJI CONNECT";
-    if(!approvedBefore){camState.status="CONFIRM CODE "+String(code);log("PAIR first-time code=%s; confirm matching code on camera",code);}else{camState.status="DJI APPROVAL";log("PAIR known-camera mode=0 code=%s",code);}
+    if(!approvedBefore){camState.status="CONFIRM CODE "+String(code);log("PAIR first-time code=%s; confirm matching code on camera",code);}else{camState.status="DJI APPROVAL";log("PAIR known-camera mode=0");}
     camState.lastWrite=sendFrame(0x00,0x19,0x02,p,sizeof(p))?"sent":"failed";
 }
 void DjiActionCamera::sendConnectionResponse(uint16_t incomingSeq){uint8_t p[9]{};uint32_t controllerId=0x12345678;p[0]=controllerId&0xFF;p[1]=controllerId>>8;p[2]=controllerId>>16;p[3]=controllerId>>24;p[4]=0;sendFrame(0x00,0x19,0x20,p,sizeof(p),incomingSeq);}
@@ -64,13 +64,7 @@ void DjiActionCamera::setModel(uint32_t id){cameraDeviceId=id;switch(id){case 0x
 void DjiActionCamera::notifyCb(NimBLERemoteCharacteristic*,uint8_t*d,size_t n,bool){if(instance)instance->handleNotify(d,n);}
 void DjiActionCamera::handleNotify(const uint8_t*d,size_t n){
     camState.incomingPackets++;
-    if(!n)return;
-    static uint32_t notifySamples=0,ignoredSamples=0;
-    if(d[0]!=0xAA){
-        if(ignoredSamples<6){char hex[73]{};size_t shown=n<24?n:24;for(size_t i=0;i<shown;i++)snprintf(hex+i*3,sizeof(hex)-i*3,"%02X ",d[i]);log("RX ignored non-DJI notify n=%u head=%s",(unsigned)n,hex);ignoredSamples++;}
-        return;
-    }
-    if(notifySamples<8){char hex[73]{};size_t shown=n<24?n:24;for(size_t i=0;i<shown;i++)snprintf(hex+i*3,sizeof(hex)-i*3,"%02X ",d[i]);log("RX DJI notify n=%u head=%s",(unsigned)n,hex);notifySamples++;}
+    if(!n||d[0]!=0xAA)return;
     rxLen=0;
     if(n>sizeof(rxBuf)){log("RX DJI frame too large n=%u",(unsigned)n);return;}
     memcpy(rxBuf,d,n);rxLen=n;parseFrames();
@@ -90,11 +84,10 @@ void DjiActionCamera::parseFrames(){
     }
 }
 void DjiActionCamera::handleFrame(const uint8_t*f,size_t len){
-    uint8_t type=f[3],set=f[12],id=f[13];uint16_t frameSeq=read16(f+8);const uint8_t*p=f+14;size_t n=len-18;char b[48];snprintf(b,sizeof(b),"%02X/%02X type=%02X len=%u",set,id,type,(unsigned)n);camState.lastIncoming=b;log("RX %s",b);
+    uint8_t type=f[3],set=f[12],id=f[13];uint16_t frameSeq=read16(f+8);const uint8_t*p=f+14;size_t n=len-18;char b[48];snprintf(b,sizeof(b),"%02X/%02X type=%02X len=%u",set,id,type,(unsigned)n);camState.lastIncoming=b;if(!(set==0x1D&&id==0x02))log("RX %s",b);
     if(set==0x00&&id==0x19){
         if((type&0x20)==0&&n>=33){
-            log("PAIR camera result mode=%u data=%u tail=%02X %02X %02X %02X %02X %02X %02X %02X %02X",(unsigned)p[26],(unsigned)read16(p+27),p[24],p[25],p[26],p[27],p[28],p[29],p[30],p[31],p[32]);
-            if(p[26]==2){setModel(read32(p));if(read16(p+27)==0){pendingConnectionSeq=frameSeq;pendingConnectionResponse=true;camState.status="DJI APPROVED";log("PAIR deferred response queued seq=%u",(unsigned)frameSeq);}else{camState.status="DJI REJECTED";client->disconnect();}}
+            if(p[26]==2){setModel(read32(p));if(read16(p+27)==0){pendingConnectionSeq=frameSeq;pendingConnectionResponse=true;camState.status="DJI APPROVED";}else{camState.status="DJI REJECTED";client->disconnect();}}
         }
         return;
     }
@@ -105,7 +98,7 @@ void DjiActionCamera::handleFrame(const uint8_t*f,size_t len){
 bool DjiActionCamera::setRecording(bool on){if(!camState.controlReady)return false;uint8_t p[9]{};p[0]=cameraDeviceId&0xFF;p[1]=cameraDeviceId>>8;p[2]=cameraDeviceId>>16;p[3]=cameraDeviceId>>24;p[4]=on?0:1;camState.lastCommand=on?"REC":"STOP";camState.lastWrite=sendFrame(0x1D,0x03,0x02,p,sizeof(p))?"sent":"failed";return camState.lastWrite=="sent";}
 void DjiActionCamera::loop(){
     if(pendingConnectionResponse){
-        const uint16_t s=pendingConnectionSeq;pendingConnectionResponse=false;log("PAIR deferred response sending seq=%u",(unsigned)s);sendConnectionResponse(s);log("PAIR deferred response sent seq=%u",(unsigned)s);approvedBefore=true;prefs.putBool("approved",true);camState.paired=true;camState.ready=true;camState.controlReady=true;camState.status="DJI READY";subscribeStatus();
+        const uint16_t s=pendingConnectionSeq;pendingConnectionResponse=false;sendConnectionResponse(s);approvedBefore=true;prefs.putBool("approved",true);camState.paired=true;camState.ready=true;camState.controlReady=true;camState.status="DJI READY";subscribeStatus();
     }
     if(connectRequested&&!connectTaskRunning){connectTaskRunning=true;if(xTaskCreate(connectTaskThunk,"dji-connect",8192,this,1,nullptr)!=pdPASS){connectTaskRunning=false;connectRequested=false;camState.status="DJI TASK FAIL";}}
     if(reconnectWanted&&!connectTaskRunning&&!connectRequested&&(int32_t)(millis()-nextReconnectMs)>=0&&savedAddress.length()){reconnectWanted=false;connectTo(savedAddress,savedAddressType);}
