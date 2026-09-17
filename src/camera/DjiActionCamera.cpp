@@ -91,7 +91,13 @@ void DjiActionCamera::parseFrames(){
 }
 void DjiActionCamera::handleFrame(const uint8_t*f,size_t len){
     uint8_t type=f[3],set=f[12],id=f[13];uint16_t frameSeq=read16(f+8);const uint8_t*p=f+14;size_t n=len-18;char b[48];snprintf(b,sizeof(b),"%02X/%02X type=%02X len=%u",set,id,type,(unsigned)n);camState.lastIncoming=b;log("RX %s",b);
-    if(set==0x00&&id==0x19){if((type&0x20)==0&&n>=33&&p[26]==2){setModel(read32(p));if(read16(p+27)==0){sendConnectionResponse(frameSeq);approvedBefore=true;prefs.putBool("approved",true);camState.paired=true;camState.ready=true;camState.controlReady=true;camState.status="DJI READY";subscribeStatus();}else{camState.status="DJI REJECTED";client->disconnect();}}return;}
+    if(set==0x00&&id==0x19){
+        if((type&0x20)==0&&n>=33){
+            log("PAIR camera result mode=%u data=%u tail=%02X %02X %02X %02X %02X %02X %02X %02X %02X",(unsigned)p[26],(unsigned)read16(p+27),p[24],p[25],p[26],p[27],p[28],p[29],p[30],p[31],p[32]);
+            if(p[26]==2){setModel(read32(p));if(read16(p+27)==0){sendConnectionResponse(frameSeq);approvedBefore=true;prefs.putBool("approved",true);camState.paired=true;camState.ready=true;camState.controlReady=true;camState.status="DJI READY";subscribeStatus();}else{camState.status="DJI REJECTED";client->disconnect();}}
+        }
+        return;
+    }
     if(set==0x1D&&id==0x02&&(type&0x20)==0&&n>=38){uint8_t mode=p[0],status=p[1];uint16_t recordTime=read16(p+5);bool videoMode=(mode==0x00||mode==0x01||mode==0x02||mode==0x0A||mode==0x28||mode==0x38||mode==0x3A||mode==0x41||mode==0x43||mode==0x44||mode==0x4A);camState.recording=videoMode&&status==0x03&&(recordTime>0||mode!=0x05);remainingSeconds=read32(p+23);char t[24];snprintf(t,sizeof(t),"%luH:%02lu",(unsigned long)(remainingSeconds/3600),(unsigned long)((remainingSeconds%3600)/60));camState.mediaRemaining=t;camState.batteryPercent=p[37];camState.ready=true;camState.controlReady=true;camState.status=camState.recording?"DJI REC":"DJI READY";return;}
     if(set==0x1D&&id==0x03&&(type&0x20)&&n>=1)camState.lastWrite=p[0]==0?"DJI RECORD ACK OK":"DJI RECORD ACK FAIL";
 }
