@@ -34,7 +34,7 @@ bool DjiActionCamera::startScan(String&j){
 bool DjiActionCamera::connectTo(const String&a,uint8_t t){if(!a.length()||connectTaskRunning)return false;requestedAddress=a;requestedAddressType=t;connectRequested=true;camState.status="DJI CONNECT QUEUED";return true;}
 void DjiActionCamera::connectTaskThunk(void*a){auto*self=(DjiActionCamera*)a;String x=self->requestedAddress;uint8_t t=self->requestedAddressType;self->connectRequested=false;self->performConnect(x,t);self->connectTaskRunning=false;vTaskDelete(nullptr);}
 void DjiActionCamera::performConnect(const String&a,uint8_t t){
-    if(client&&client->isConnected())client->disconnect();notifyChar=writeChar=nullptr;rxLen=0;camState.connected=false;camState.controlReady=false;camState.ready=false;camState.status="DJI CONNECTING";
+    if(client&&client->isConnected())client->disconnect();notifyChar=writeChar=nullptr;rxLen=0;pendingConnectionResponse=false;camState.connected=false;camState.controlReady=false;camState.ready=false;camState.status="DJI CONNECTING";
     if(!client){client=NimBLEDevice::createClient();if(!client){camState.status="DJI CLIENT FAIL";return;}client->setClientCallbacks(&callbacks,false);client->setConnectTimeout(8000);}
     NimBLEAddress ad(a.c_str(),t);if(!client->connect(ad,true,false,true)){camState.status="DJI CONNECT FAIL";log("BLE connect failed error=%d",client->getLastError());return;}log("BLE connected MTU=%u",(unsigned)client->getMTU());
     auto*svc=client->getService(DJI_SERVICE);if(!svc){camState.status="DJI SERVICE MISSING";client->disconnect();return;}notifyChar=svc->getCharacteristic(DJI_NOTIFY);writeChar=svc->getCharacteristic(DJI_WRITE);
@@ -94,7 +94,7 @@ void DjiActionCamera::handleFrame(const uint8_t*f,size_t len){
     if(set==0x00&&id==0x19){
         if((type&0x20)==0&&n>=33){
             log("PAIR camera result mode=%u data=%u tail=%02X %02X %02X %02X %02X %02X %02X %02X %02X",(unsigned)p[26],(unsigned)read16(p+27),p[24],p[25],p[26],p[27],p[28],p[29],p[30],p[31],p[32]);
-            if(p[26]==2){setModel(read32(p));if(read16(p+27)==0){sendConnectionResponse(frameSeq);approvedBefore=true;prefs.putBool("approved",true);camState.paired=true;camState.ready=true;camState.controlReady=true;camState.status="DJI READY";subscribeStatus();}else{camState.status="DJI REJECTED";client->disconnect();}}
+            if(p[26]==2){setModel(read32(p));if(read16(p+27)==0){pendingConnectionSeq=frameSeq;pendingConnectionResponse=true;camState.status="DJI APPROVED";log("PAIR deferred response queued seq=%u",(unsigned)frameSeq);}else{camState.status="DJI REJECTED";client->disconnect();}}
         }
         return;
     }
@@ -103,8 +103,14 @@ void DjiActionCamera::handleFrame(const uint8_t*f,size_t len){
 }
 
 bool DjiActionCamera::setRecording(bool on){if(!camState.controlReady)return false;uint8_t p[9]{};p[0]=cameraDeviceId&0xFF;p[1]=cameraDeviceId>>8;p[2]=cameraDeviceId>>16;p[3]=cameraDeviceId>>24;p[4]=on?0:1;camState.lastCommand=on?"REC":"STOP";camState.lastWrite=sendFrame(0x1D,0x03,0x02,p,sizeof(p))?"sent":"failed";return camState.lastWrite=="sent";}
-void DjiActionCamera::loop(){if(connectRequested&&!connectTaskRunning){connectTaskRunning=true;if(xTaskCreate(connectTaskThunk,"dji-connect",8192,this,1,nullptr)!=pdPASS){connectTaskRunning=false;connectRequested=false;camState.status="DJI TASK FAIL";}}if(reconnectWanted&&!connectTaskRunning&&!connectRequested&&(int32_t)(millis()-nextReconnectMs)>=0&&savedAddress.length()){reconnectWanted=false;connectTo(savedAddress,savedAddressType);}}
+void DjiActionCamera::loop(){
+    if(pendingConnectionResponse){
+        const uint16_t s=pendingConnectionSeq;pendingConnectionResponse=false;log("PAIR deferred response sending seq=%u",(unsigned)s);sendConnectionResponse(s);log("PAIR deferred response sent seq=%u",(unsigned)s);approvedBefore=true;prefs.putBool("approved",true);camState.paired=true;camState.ready=true;camState.controlReady=true;camState.status="DJI READY";subscribeStatus();
+    }
+    if(connectRequested&&!connectTaskRunning){connectTaskRunning=true;if(xTaskCreate(connectTaskThunk,"dji-connect",8192,this,1,nullptr)!=pdPASS){connectTaskRunning=false;connectRequested=false;camState.status="DJI TASK FAIL";}}
+    if(reconnectWanted&&!connectTaskRunning&&!connectRequested&&(int32_t)(millis()-nextReconnectMs)>=0&&savedAddress.length()){reconnectWanted=false;connectTo(savedAddress,savedAddressType);}
+}
 void DjiActionCamera::disconnect(){reconnectWanted=false;if(client&&client->isConnected())client->disconnect();}
-void DjiActionCamera::forgetPairing(){disconnect();prefs.remove("address");prefs.remove("type");prefs.remove("approved");savedAddress="";approvedBefore=false;camState=CameraState{};camState.status="DJI OFFLINE";camState.model="DJI Osmo";camState.protocolVersion="DJI R SDK";log("DJI saved target cleared; unrelated BLE bonds untouched");}
+void DjiActionCamera::forgetPairing(){disconnect();prefs.remove("address");prefs.remove("type");prefs.remove("approved");savedAddress="";approvedBefore=false;pendingConnectionResponse=false;camState=CameraState{};camState.status="DJI OFFLINE";camState.model="DJI Osmo";camState.protocolVersion="DJI R SDK";log("DJI saved target cleared; unrelated BLE bonds untouched");}
 void DjiActionCamera::ClientCallbacks::onConnect(NimBLEClient*){o->camState.connected=true;o->camState.status="DJI BLE LINK";}
-void DjiActionCamera::ClientCallbacks::onDisconnect(NimBLEClient*,int r){o->camState.connected=false;o->camState.controlReady=false;o->camState.ready=false;o->camState.recording=false;o->camState.status="DJI OFFLINE";o->log("BLE disconnected reason=%d",r);if(o->savedAddress.length()){o->reconnectWanted=true;o->nextReconnectMs=millis()+3000;}}
+void DjiActionCamera::ClientCallbacks::onDisconnect(NimBLEClient*,int r){o->pendingConnectionResponse=false;o->camState.connected=false;o->camState.controlReady=false;o->camState.ready=false;o->camState.recording=false;o->camState.status="DJI OFFLINE";o->log("BLE disconnected reason=%d",r);if(o->savedAddress.length()){o->reconnectWanted=true;o->nextReconnectMs=millis()+3000;}}
