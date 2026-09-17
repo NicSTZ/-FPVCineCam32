@@ -69,6 +69,10 @@ The uppercase `H` is intentional for DJI/Betaflight font compatibility.
 
 Blackmagic OSD shows REC/STBY state and remaining record time for the active media.
 
+### DJI
+
+DJI OSD shows REC/STBY state, battery level and remaining recording time.
+
 ## GoPro notes
 
 - Put the GoPro into pairing mode for first pairing.
