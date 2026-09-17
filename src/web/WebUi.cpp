@@ -37,7 +37,7 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <div id=djiBadge class="statusBadge statusOffline">Camera disconnected</div>
 <div id=djiSummary class=muted>Offline</div>
 <p><button id=djiScan onclick=djiScan()>Scan for cameras</button><span id=djiCams></span></p>
-<p><button onclick="djiRec(1)">REC test</button><button onclick="djiRec(0)">STOP test</button><button onclick=djiForget()>Forget camera</button></p>
+<p><button onclick="djiRec(1)">REC</button><button onclick="djiRec(0)">STOP</button><button onclick=djiForget()>Forget camera</button></p>
 <p id=djiMessage class=muted role=status></p>
 </div>
 
@@ -46,7 +46,7 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <div id=camBadge class="statusBadge statusOffline">Camera disconnected</div><div id=camSummary class=muted>Loading...</div>
 <div id=pin style="display:none"><p class=warn>Enter the 6-digit PIN shown on the BMPCC 4K:</p><input id=pinval inputmode=numeric maxlength=6 placeholder=123456><button onclick=sendPin()>Submit PIN</button></div>
 <p><button onclick=scan()>Scan for cameras</button><span id=cams></span></p>
-<p><button onclick="rec(1)">REC test</button><button onclick="rec(0)">STOP test</button><button onclick=forget()>Forget pairing</button></p>
+<p><button onclick="rec(1)">REC</button><button onclick="rec(0)">STOP</button><button onclick=forget()>Forget camera</button></p>
 </fieldset>
 </div>
 
