@@ -36,7 +36,7 @@ void DjiActionCamera::connectTaskThunk(void*a){auto*self=(DjiActionCamera*)a;Str
 void DjiActionCamera::performConnect(const String&a,uint8_t t){
     if(client&&client->isConnected())client->disconnect();notifyChar=writeChar=nullptr;rxLen=0;camState.connected=false;camState.controlReady=false;camState.ready=false;camState.status="DJI CONNECTING";
     if(!client){client=NimBLEDevice::createClient();if(!client){camState.status="DJI CLIENT FAIL";return;}client->setClientCallbacks(&callbacks,false);client->setConnectTimeout(8000);}
-    NimBLEAddress ad(a.c_str(),t);if(!client->connect(ad,true,false,false)){camState.status="DJI CONNECT FAIL";log("BLE connect failed error=%d",client->getLastError());return;}
+    NimBLEAddress ad(a.c_str(),t);if(!client->connect(ad,true,false,true)){camState.status="DJI CONNECT FAIL";log("BLE connect failed error=%d",client->getLastError());return;}log("BLE connected MTU=%u",(unsigned)client->getMTU());
     auto*svc=client->getService(DJI_SERVICE);if(!svc){camState.status="DJI SERVICE MISSING";client->disconnect();return;}notifyChar=svc->getCharacteristic(DJI_NOTIFY);writeChar=svc->getCharacteristic(DJI_WRITE);
     if(!notifyChar||!writeChar){camState.status="DJI CHAR MISSING";client->disconnect();return;}
     bool n=notifyChar->canNotify()?notifyChar->subscribe(true,notifyCb):(notifyChar->canIndicate()?notifyChar->subscribe(false,notifyCb):false);if(!n){camState.status="DJI NOTIFY FAIL";client->disconnect();return;}
