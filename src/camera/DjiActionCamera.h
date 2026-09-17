@@ -31,9 +31,9 @@ private:
     String savedAddress,requestedAddress,logText;
     uint8_t savedAddressType=0,requestedAddressType=0;
     bool approvedBefore=false,reconnectWanted=false;
-    volatile bool connectRequested=false,connectTaskRunning=false;
+    volatile bool connectRequested=false,connectTaskRunning=false,pendingConnectionResponse=false;
     uint32_t nextReconnectMs=0,cameraDeviceId=0,remainingSeconds=0;
-    uint16_t seq=0;
+    uint16_t seq=0,pendingConnectionSeq=0;
     uint8_t rxBuf[512]{}; size_t rxLen=0;
     class ClientCallbacks:public NimBLEClientCallbacks{public:explicit ClientCallbacks(DjiActionCamera* x):o(x){}void onConnect(NimBLEClient*)override;void onDisconnect(NimBLEClient*,int reason)override;private:DjiActionCamera* o;} callbacks;
     static DjiActionCamera* instance;
