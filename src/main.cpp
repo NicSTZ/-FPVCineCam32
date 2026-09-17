@@ -122,7 +122,7 @@ void setup() {
     char ap[32]; snprintf(ap,sizeof(ap),"FPVCineCam32-%04X",(uint16_t)(mac&0xffff));
     if (settings.selectedCamera == "gopro") gopro = new GoProCamera();
     if (settings.selectedCamera == "dji") dji = new DjiActionCamera();
-    web = new WebUi(settings,settingsStore,camera,msp,gopro);
+    web = new WebUi(settings,settingsStore,camera,msp,gopro,dji);
     Serial.printf("[%8lu ms] WIFI: starting SoftAP %s\n", (unsigned long)millis(), ap);
     web->begin(ap);
     wifiStartedAt = millis();
