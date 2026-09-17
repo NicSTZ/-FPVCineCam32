@@ -1,12 +1,15 @@
-# FPVCineCam32 v0.12.0
+# FPVCineCam32 v0.13.0
 
 FPVCineCam32 is an ESP32-C3 camera-control interface for FPV systems. It connects supported cameras over Bluetooth and integrates with Betaflight MSP for RC REC/STOP control and DJI/Betaflight OSD status.
+
+**Requires Betaflight 2025.12 or later.**
 
 ## Tested cameras
 
 - Blackmagic Pocket Cinema Camera 4K
 - GoPro HERO12
 - GoPro HERO13
+- DJI Osmo Action 5 Pro
 
 Other recent GoPro models using the same Open GoPro BLE protocol should be compatible but are not yet physically tested. Other Blackmagic cameras using the same Blackmagic Camera Control BLE protocol may also work but are currently unverified.
 
@@ -66,6 +69,10 @@ The uppercase `H` is intentional for DJI/Betaflight font compatibility.
 
 Blackmagic OSD shows REC/STBY state and remaining record time for the active media.
 
+### DJI Osmo
+
+DJI Osmo OSD shows REC/STBY state, battery level and remaining recording time.
+
 ## GoPro notes
 
 - Put the GoPro into pairing mode for first pairing.
@@ -81,6 +88,12 @@ Blackmagic OSD shows REC/STBY state and remaining record time for the active med
 - REC/STBY is based on camera feedback rather than only on the outgoing command.
 - If no usable media is present, the OSD will not falsely show REC.
 - Remaining record time follows the active media.
+
+## DJI Osmo notes
+
+- DJI Osmo Action 5 Pro has been physically tested.
+- First pairing requires approval on the camera.
+- Pairing is saved for automatic reconnect.
 
 ## Setup Wi-Fi
 
