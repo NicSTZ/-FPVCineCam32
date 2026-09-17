@@ -1,116 +1,97 @@
 # FPVCineCam32 v0.12.0
 
-**FPVCineCam32 v0.12.0 — Proven Blackmagic + GoPro Baseline**
+FPVCineCam32 is an ESP32-C3 camera-control interface for FPV systems. It connects supported cameras over Bluetooth and integrates with Betaflight MSP for RC REC/STOP control and DJI/Betaflight OSD status.
 
-Release preparation based on hardware-proven source `d64e1e8aaf6ea261cef452a3534f52255d580293` and published build `de69a0b`. This version changes release text/documentation only. The v0.12.0 package awaits Nic’s final hardware sanity check; no Git tag or GitHub release has been created.
+## Tested cameras
 
-## Hardware-verified capabilities
+- Blackmagic Pocket Cinema Camera 4K
+- GoPro HERO12
+- GoPro HERO13
 
-- **Blackmagic:** pairing/reconnect; TX16S REC/STOP; authoritative REC/STBY with no false REC without media; active-media detection; remaining record time; DJI/Betaflight OSD.
-- **GoPro:** secure pairing/bonding and persistent reconnect; multiple saved GoPros with one active reconnect target; targeted Forget; TX16S and Web UI REC/STOP; camera-reported REC/STBY, battery percentage and remaining video time; DJI/Betaflight OSD; switching active GoPros and switching between GoPro and Blackmagic.
-- **System:** shared Betaflight RC mapping; GPIO6 RX / GPIO7 TX MSP at 115200 baud; camera system selector; setup Wi-Fi with the existing 90-second idle behavior; GoPro Copy log and internal `/api/status` diagnostics retained. GoPro time is `2h:28` in the Web UI and `2H:28` in OSD.
+Other recent GoPro models using the same Open GoPro BLE protocol should be compatible but are not yet physically tested. Other Blackmagic cameras using the same Blackmagic Camera Control BLE protocol may also work but are currently unverified.
 
-The known occasional Blackmagic extra restart after camera-system switching remains unchanged. Custom-text OSD requires a supported DJI system; do not rely on it on Vista/original Air Unit with Goggles V1/V2.
+## Main functions
 
-## GoPro power / reconnect
+- REC/STOP from a Betaflight RC channel
+- Camera status in DJI/Betaflight OSD
+- ESP-hosted Web UI for camera setup and pairing
+- Persistent camera pairing/reconnect
+- Multiple saved GoPros with one active connection at a time
 
-FPVCineCam32 reconnects automatically when the selected GoPro is powered on and available over Bluetooth. If the camera has fully powered down and is no longer advertising over BLE, power the GoPro on normally before use. FPVCineCam32 does not implement BLE wake/power-on.
+## Wiring
 
-## Release package
+| Flight controller | ESP32-C3 SuperMini |
+| --- | --- |
+| FC TX | GPIO6 / ESP RX |
+| FC RX | GPIO7 / ESP TX |
+| GND | GND |
 
-The installer displays **Firmware v0.12.0**. Flash without erasing to preserve existing bonds and configuration. Rollback before this release preparation remains `de69a0b`; the earlier Blackmagic-only v0.10.10 release is preserved. v0.11.x is intentionally skipped because it was associated with abandoned development work.
+MSP baud: `115200`
 
-Final sanity check: confirm the installer version, retained GoPro reconnect plus one TX16S REC/STOP cycle and OSD, then switch to Blackmagic and repeat REC/STOP with media remaining visible.
+## Firmware installer
 
----
+https://nicstz.github.io/-FPVCineCam32/
 
-<details>
-<summary>Historical milestone notes (retained; not current release instructions)</summary>
+For normal firmware updates, flash without erasing unless a release note specifically says otherwise. This preserves saved settings and camera pairings.
 
-# FPVCineCam32 v0.10.10 ACTIVE MEDIA FIX
+The browser installer uses Web Serial. Chrome or Edge on Mac/PC is recommended. iPhone/iPad Safari cannot be used for Web Serial flashing. The ESP-hosted Web UI itself can be used from a phone after the firmware is installed.
 
-Targeted correction on top of v0.10.9.
+## Betaflight
 
-## Change
+Enable MSP on the UART connected to the ESP32-C3, then configure the REC/STOP RC channel in the FPVCineCam32 Web UI.
 
-- Corrects the 10:1 receive decoder to accept camera-originated operation `2` telemetry as well as operation `0` control-state packets.
-- Keeps the proven Pocket 4K active-media mapping: flag `0x20` = slot 1, `0x40` = slot 2, and captured Pocket 4K extension `0x10` = slot 3 / USB.
-- Active slot selects the matching decoded 9:2 remaining-time value. A zero active-media mask clears the display to `MEDIA --`.
+GPIO6 RX and GPIO7 TX are fixed for the current ESP32-C3 SuperMini hardware profile.
 
-## Deliberately unchanged
+## OSD
 
-BLE connection/pairing, REC/STOP writes, Wi-Fi behavior, MSP/OSD, RC mapping, GPIO6/7, and 9:2 media-time decoding are unchanged from v0.10.9.
+Enable Betaflight **Custom Message 1** and **Custom Message 2** in the OSD layout.
 
-Known-good fallback remains **v0.10.6 MEDIA REMAINING**.
+### GoPro
 
-## OSD display
+Custom Message 1 shows camera state:
 
-- The status custom message shows `REC` / `STBY` during normal camera operation.
-- The media custom message shows `MEDIA HH:MM:SS`, reflecting the active camera media. If active-media remaining time is unavailable, it shows `MEDIA --`.
-- Existing custom-message slots and transmission behavior are unchanged.
-- Custom text works on supported DJI systems; user testing confirms O3/O4 with Goggles V2. Do not rely on arbitrary custom text on Vista/original Air Unit with Goggles V1/V2.
+- `CAM OFF`
+- `CAM CONNECT`
+- `CAM READY`
+- `CAM REC`
+- `CAM ERROR`
 
-This explanation belongs in documentation, not in the live setup GUI.
+Custom Message 2 shows battery and remaining video time, for example:
 
-## GoPro connection milestone
+`BAT 36% SD 2H:28`
 
-Temporary GUI label: **GOPRO CONNECTION TEST**. Version text remains v0.10.10 ACTIVE MEDIA FIX. Rollback: camera-selector build `ca7cee3`.
+The uppercase `H` is intentional for DJI/Betaflight font compatibility.
 
-Select GoPro, Save & Restart, then put the camera in Connect Device / GoPro Quik App mode for the first pairing. Scan for another GoPro, select its advertised name and Add camera. Control ready requires an encrypted stored bond, all three response subscriptions, and a successful read-only Get Hardware Info response. No shutter/REC/STOP, camera settings, media or camera Wi-Fi commands are implemented. No keep-alive is sent; camera sleep policy is unchanged.
+### Blackmagic
 
-GoPro target and resolved identity use their own NVS namespace (`fpvcam-gopro`); NimBLE stores encryption/identity keys in its existing persistent bond store. GoPro mode refuses automatic bond eviction if storage fills. Each saved card’s Forget action deletes only that GoPro’s bond and card; target keys are cleared only when forgetting the current target. Blackmagic files and saved target keys are untouched. Connection failures retry at five-second intervals; security/discovery/subscription/readiness failures stop automatic retries for that attempt and appear in the log.
+Blackmagic OSD shows REC/STBY state and remaining record time for the active media.
 
-Copy log retrieves the last 64 GoPro connection events from RAM; reboot clears them. No Blackmagic logging was added. Test the requested round trip: GoPro scan/pair/Control ready → ESP restart and bonded reconnect → switch back to Blackmagic and confirm its retained pairing. Software checks cannot establish physical GoPro compatibility.
+## GoPro notes
 
-### Protocol references
+- Put the GoPro into pairing mode for first pairing.
+- Multiple GoPros can be saved; one is connected at a time.
+- The last active GoPro becomes the next reconnect target.
+- Forget removes only that GoPro and its Bluetooth bond.
+- If a GoPro has fully powered down and is no longer advertising over BLE, power it on normally before use. FPVCineCam32 will reconnect when the camera becomes available.
+- Remote GoPro wake/power-on is not currently implemented.
 
-- [Official BLE setup and UUIDs](https://gopro.github.io/OpenGoPro/docs/ble/protocol/ble_setup/): FEA6 service; GP-0072/73 Command/Response, GP-0074/75 Settings/Response, GP-0076/77 Query/Response. Only Hardware Info is written to Command.
-- [Official query reference](https://gopro.github.io/OpenGoPro/docs/ble/query/#get-hardware-info) and [packet framing](https://gopro.github.io/OpenGoPro/docs/ble/protocol/data_protocol/) define the readiness probe and response handling.
-- Behavioral cross-checks: [ESP32-C6 GoPro remote's reported legacy bonding behavior](https://github.com/smillier/GoPro_ESP32C6_Remote), [GoControl scan/subscription behavior](https://github.com/sdebby/GoControl), and [NimBLE GoPro device-name observation](https://github.com/h2zero/NimBLE-Arduino/issues/659). No third-party implementation source was copied.
+## Blackmagic notes
 
-## Saved GoPro cards
+- First pairing uses the 6-digit PIN shown by the camera.
+- REC/STBY is based on camera feedback rather than only on the outgoing command.
+- If no usable media is present, the OSD will not falsely show REC.
+- Remaining record time follows the active media.
 
-Rollback for this UI/state build: hardware-proven GoPro connection build `ffd2183`.
+## Setup Wi-Fi
 
-The versioned `cards_v1` NVS blob in `fpvcam-gopro` holds up to eight records: resolved BLE identity/address type, last advertised address/type, camera-reported name, and a friendly name (up to 48 UTF-8 bytes). Names never identify a device. Existing target keys and NimBLE bond storage remain separate and unchanged. The existing NimBLE limit of three total bonds, including Blackmagic, still applies; no automatic eviction was added.
+Setup Wi-Fi is temporary. If no client connects during the setup window, Wi-Fi shuts down while BLE camera control, MSP and OSD continue running. Wi-Fi returns after reboot.
 
-A previously bonded single GoPro migrates automatically. Older firmware did not save its advertised name: the card shows “Camera name not captured” until a later scan supplies it. No extra BLE command is issued to retrieve a name. Saved cards survive offline periods, reboot and camera-type switches. Connected cards expand with bonded/encrypted/control status; REC/STOP placeholders remain disabled. Rename is persistent. Scan is for adding cameras, and resolved identities prevent duplicate saved entries. Only one GoPro connects at a time; Connect on another card deliberately disconnects the current GoPro first.
+## Current scope
 
-Short hardware check (flash without erasing):
+FPVCineCam32 currently exposes the camera information most useful during FPV operation:
 
-1. With the already-paired GoPro on, verify its card appears and reaches Control ready without scanning. Rename it, restart ESP, and reload the page; verify its name and bonded reconnect.
-2. Turn GoPro off: its card must remain disconnected. Turn it on and confirm recovery. Switch to Blackmagic and back; check BMPCC using the established additional restart if needed, then confirm the GoPro card/name and reconnect survive.
-3. Forget that GoPro, verify the card disappears, then scan/add it and confirm first pairing reaches Control ready. If a second GoPro is available, forget its offline card while the first is connected; only that card/bond should disappear.
+- Recording state
+- Battery level where available
+- Remaining recording time
 
-Host simulations and source comparisons cover state/storage and unchanged protected code; these do not replace the physical checks above.
-
-## GoPro state + OSD test (current development build)
-
-Rollback: hardware-proven REC/STOP build `c2784fe`. This extends the earlier connection/card milestones above; manual REC/STOP remains available, and state/OSD awaits physical validation.
-
-Only three official statuses are registered through GP-0076: Encoding **10 / 0x0A** (one-byte boolean), Internal Battery Percentage **70 / 0x46** (one byte, 0–100), and Remaining Video Time **35 / 0x23** (four-byte big-endian seconds). Request `04 53 0A 46 23` registers these values. GP-0077 response `0x53` supplies initial values; notifications `0x93` supply changes. Registration is repeated once per BLE connection after the existing Hardware Info readiness check. There is no periodic status polling or bitrate-based time estimate.
-
-Recording is unknown, standby or recording, based exclusively on Encoding; shutter acknowledgements never set it. Test in video mode: GoPro defines Encoding as capture activity, and remaining time according to current camera settings. No mode query/change is added. Battery outside 0–100 is unknown. Remaining time is stored in seconds and displayed as whole minutes rounded down (less than a minute displays `0 min`). Disconnect/switch clears the values. Failed, malformed, or timed-out status registration leaves unknown values and a diagnostic error without changing the working BLE reconnect or shutter paths.
-
-### GoPro OSD mapping
-
-Use Betaflight Configurator **Custom Message 1** and **Custom Message 2**:
-
-- **Custom Message 1**, internal slot **0**: `CAM OFF`, `CAM CONNECT`, `CAM READY`, `CAM REC`, or `CAM ERROR`. READY requires control readiness and authoritative standby; unknown/error state is never presented as READY. Registration pending is CONNECT; a failed status path is ERROR.
-- **Custom Message 2**, internal slot **1**: `BAT 82% SD 47m`, with unknowns shown as `BAT -- SD --` (each field can be independently unknown).
-
-The combined message fits the existing 31-character limit. Both use the unchanged MSP custom-text writer and existing 500 ms refresh; no alternating text, extra UART transport or GoPro RC mapping. Blackmagic retains its existing OSD formatting and configured slots. Supported DJI custom-message compatibility remains as documented above.
-
-References: [official status IDs](https://gopro.github.io/OpenGoPro/docs/ble/statuses/), [registration and change notifications](https://gopro.github.io/OpenGoPro/docs/ble/query/#register-for-status-value-updates), [packet/TLV format](https://gopro.github.io/OpenGoPro/docs/ble/protocol/data_protocol/), and [official SDK value types](https://github.com/gopro/OpenGoPro/blob/main/demos/python/sdk_wireless_camera_control/open_gopro/api/ble_statuses.py). No third-party source copied.
-
-## TX16 GoPro + truthful Blackmagic REC test (current build)
-
-Rollback: `050e667`. The existing RC channel, threshold, polarity and 300 ms minimum command interval now drive the selected backend. Blackmagic calls its existing `setRecording`; GoPro calls its existing active-ID-checked `setShutter`. A switch edge or newly ready control link applies the position once. Switching saved GoPros reapplies the position to the new active camera. No continuous correction against telemetry is performed: a physical camera shutter change remains authoritative until the mapped switch changes again.
-
-GoPro camera-reported seconds are unchanged. Web UI and Custom Message 2 now use `hours = seconds / 3600`, `minutes = (seconds % 3600) / 60`, formatted `Xh:XX`: 8929 → `2h:28`, 7140 → `1h:59`, 3599 → `0h:59`. Example OSD: `BAT 36% SD 2h:28`; unknown fields remain `--`.
-
-Blackmagic outgoing REC/STOP write success no longer sets recording or its REC/ready label. The unchanged Incoming Camera Control decoder uses Media category 10, Transport Mode parameter 1, int8 `value[0]`: mode 2 is Record; Preview/Play are not recording. Existing operation 0/2 acceptance and all remaining-time/active-media decoding remain unchanged. No-media REC commands are still sent; only camera telemetry may assert REC. [Official Blackmagic Camera Control protocol](https://documents.blackmagicdesign.com/DeveloperManuals/BlackmagicCameraControl.pdf).
-
-Hardware check: use the mapped TX16 switch on each backend, verify a ready/reconnected GoPro receives the initial switch position once, compare `Xh:XX` in UI/goggles, then test Blackmagic REC with no media (must remain STBY) and with media (REC/STOP follows actual camera state). Flash without erasing to retain bonds/settings. This build remains software-validated until those physical checks pass.
-
-</details>
+Resolution, FPS, FOV, ISO, white balance and similar camera settings are not currently part of FPVCineCam32.
