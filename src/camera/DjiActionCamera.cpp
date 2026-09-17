@@ -49,15 +49,38 @@ bool DjiActionCamera::sendFrame(uint8_t set,uint8_t id,uint8_t type,const uint8_
     bool ok=writeChar->writeValue(f,total,true);log("TX %02X/%02X type=%02X seq=%u %s",set,id,type,s,ok?"OK":"FAIL");return ok;
 }
 void DjiActionCamera::sendConnectionRequest(){
-    uint8_t p[33]{};uint32_t controllerId=0x12345678;p[0]=controllerId&0xFF;p[1]=controllerId>>8;p[2]=controllerId>>16;p[3]=controllerId>>24;p[4]=6;uint64_t mac=ESP.getEfuseMac();for(int i=0;i<6;i++)p[5+i]=(mac>>(8*i))&0xFF;p[26]=approvedBefore?0:1;uint16_t verify=(uint16_t)(esp_random()%10000);p[27]=verify&0xFF;p[28]=verify>>8;camState.lastCommand="DJI CONNECT";camState.lastWrite=sendFrame(0x00,0x19,0x02,p,sizeof(p))?"sent":"failed";
+    uint8_t p[33]{};uint32_t controllerId=0x12345678;p[0]=controllerId&0xFF;p[1]=controllerId>>8;p[2]=controllerId>>16;p[3]=controllerId>>24;p[4]=6;uint64_t mac=ESP.getEfuseMac();for(int i=0;i<6;i++)p[5+i]=(mac>>(8*i))&0xFF;
+    const uint8_t verifyMode=approvedBefore?0:1;const uint16_t verify=(uint16_t)(esp_random()%10000);p[26]=verifyMode;p[27]=verify&0xFF;p[28]=verify>>8;
+    char code[8];snprintf(code,sizeof(code),"%04u",(unsigned)verify);
+    camState.lastCommand="DJI CONNECT";
+    if(!approvedBefore){camState.status="CONFIRM CODE "+String(code);log("PAIR first-time code=%s; confirm matching code on camera",code);}else{camState.status="DJI APPROVAL";log("PAIR known-camera mode=0 code=%s",code);}
+    camState.lastWrite=sendFrame(0x00,0x19,0x02,p,sizeof(p))?"sent":"failed";
 }
 void DjiActionCamera::sendConnectionResponse(uint16_t incomingSeq){uint8_t p[9]{};uint32_t controllerId=0x12345678;p[0]=controllerId&0xFF;p[1]=controllerId>>8;p[2]=controllerId>>16;p[3]=controllerId>>24;p[4]=0;sendFrame(0x00,0x19,0x20,p,sizeof(p),incomingSeq);}
 void DjiActionCamera::subscribeStatus(){uint8_t p[6]={3,20,0,0,0,0};if(sendFrame(0x1D,0x05,0x01,p,sizeof(p)))camState.incomingSubscription="DJI 1D05 2Hz";}
 void DjiActionCamera::setModel(uint32_t id){cameraDeviceId=id;switch(id){case 0xFF33:camState.model="DJI Osmo Action 4";break;case 0xFF44:camState.model="DJI Osmo Action 5 Pro";break;case 0xFF55:camState.model="DJI Osmo Action 6";break;case 0xFF66:camState.model="DJI Osmo 360";break;default:camState.model="DJI Osmo";break;}}
 
 void DjiActionCamera::notifyCb(NimBLERemoteCharacteristic*,uint8_t*d,size_t n,bool){if(instance)instance->handleNotify(d,n);}
-void DjiActionCamera::handleNotify(const uint8_t*d,size_t n){camState.incomingPackets++;if(rxLen+n>sizeof(rxBuf)){rxLen=0;log("RX overflow reset");}if(n>sizeof(rxBuf))return;memcpy(rxBuf+rxLen,d,n);rxLen+=n;parseFrames();}
-void DjiActionCamera::parseFrames(){while(rxLen>=3){size_t start=0;while(start<rxLen&&rxBuf[start]!=0xAA)start++;if(start){memmove(rxBuf,rxBuf+start,rxLen-start);rxLen-=start;if(rxLen<3)return;}uint16_t total=read16(rxBuf+1)&0x03FF;if(total<18||total>sizeof(rxBuf)){memmove(rxBuf,rxBuf+1,--rxLen);continue;}if(rxLen<total)return;if(crc16(rxBuf,10)!=read16(rxBuf+10)||crc32(rxBuf,total-4)!=read32(rxBuf+total-4)){log("RX CRC reject");memmove(rxBuf,rxBuf+1,--rxLen);continue;}handleFrame(rxBuf,total);memmove(rxBuf,rxBuf+total,rxLen-total);rxLen-=total;}}
+void DjiActionCamera::handleNotify(const uint8_t*d,size_t n){
+    camState.incomingPackets++;
+    static uint32_t notifySamples=0;
+    if(notifySamples<8){char hex[73]{};size_t shown=n<24?n:24;for(size_t i=0;i<shown;i++)snprintf(hex+i*3,sizeof(hex)-i*3,"%02X ",d[i]);log("RX notify n=%u head=%s",(unsigned)n,hex);notifySamples++;}
+    if(rxLen+n>sizeof(rxBuf)){rxLen=0;log("RX overflow reset");}if(n>sizeof(rxBuf))return;memcpy(rxBuf+rxLen,d,n);rxLen+=n;parseFrames();
+}
+void DjiActionCamera::parseFrames(){
+    static uint32_t rejectCount=0,lastRejectLogMs=0;
+    while(rxLen>=3){
+        size_t start=0;while(start<rxLen&&rxBuf[start]!=0xAA)start++;if(start){memmove(rxBuf,rxBuf+start,rxLen-start);rxLen-=start;if(rxLen<3)return;}
+        uint16_t total=read16(rxBuf+1)&0x03FF;if(total<18||total>sizeof(rxBuf)){memmove(rxBuf,rxBuf+1,--rxLen);continue;}if(rxLen<total)return;
+        const uint16_t got16=read16(rxBuf+10),want16=crc16(rxBuf,10);const uint32_t got32=read32(rxBuf+total-4),want32=crc32(rxBuf,total-4);
+        if(want16!=got16||want32!=got32){
+            rejectCount++;const uint32_t now=millis();
+            if(rejectCount<=6||now-lastRejectLogMs>=1000){char hex[73]{};size_t shown=total<24?total:24;for(size_t i=0;i<shown;i++)snprintf(hex+i*3,sizeof(hex)-i*3,"%02X ",rxBuf[i]);log("RX CRC reject #%lu len=%u c16=%04X/%04X c32=%08lX/%08lX head=%s",(unsigned long)rejectCount,(unsigned)total,(unsigned)got16,(unsigned)want16,(unsigned long)got32,(unsigned long)want32,hex);lastRejectLogMs=now;}
+            memmove(rxBuf,rxBuf+1,--rxLen);continue;
+        }
+        handleFrame(rxBuf,total);memmove(rxBuf,rxBuf+total,rxLen-total);rxLen-=total;
+    }
+}
 void DjiActionCamera::handleFrame(const uint8_t*f,size_t len){
     uint8_t type=f[3],set=f[12],id=f[13];uint16_t frameSeq=read16(f+8);const uint8_t*p=f+14;size_t n=len-18;char b[48];snprintf(b,sizeof(b),"%02X/%02X type=%02X len=%u",set,id,type,(unsigned)n);camState.lastIncoming=b;log("RX %s",b);
     if(set==0x00&&id==0x19){if((type&0x20)==0&&n>=33&&p[26]==2){setModel(read32(p));if(read16(p+27)==0){sendConnectionResponse(frameSeq);approvedBefore=true;prefs.putBool("approved",true);camState.paired=true;camState.ready=true;camState.controlReady=true;camState.status="DJI READY";subscribeStatus();}else{camState.status="DJI REJECTED";client->disconnect();}}return;}
