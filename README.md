@@ -69,10 +69,6 @@ The uppercase `H` is intentional for DJI/Betaflight font compatibility.
 
 Blackmagic OSD shows REC/STBY state and remaining record time for the active media.
 
-### DJI Osmo
-
-DJI Osmo OSD shows REC/STBY state, battery level and remaining recording time.
-
 ## GoPro notes
 
 - Put the GoPro into pairing mode for first pairing.
@@ -88,12 +84,6 @@ DJI Osmo OSD shows REC/STBY state, battery level and remaining recording time.
 - REC/STBY is based on camera feedback rather than only on the outgoing command.
 - If no usable media is present, the OSD will not falsely show REC.
 - Remaining record time follows the active media.
-
-## DJI Osmo notes
-
-- DJI Osmo Action 5 Pro has been physically tested.
-- First pairing requires approval on the camera.
-- Pairing is saved for automatic reconnect.
 
 ## Setup Wi-Fi
 
