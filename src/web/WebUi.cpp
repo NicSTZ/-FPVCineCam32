@@ -39,9 +39,6 @@ button,input,select{font-size:16px;padding:10px;margin:5px 5px 5px 0;border-radi
 <p><button id=djiScan onclick=djiScan()>Scan for cameras</button><span id=djiCams></span></p>
 <p><button onclick="djiRec(1)">REC test</button><button onclick="djiRec(0)">STOP test</button><button onclick=djiForget()>Forget camera</button></p>
 <p id=djiMessage class=muted role=status></p>
-<button id=djiCopy onclick=copyDjiLog()>Copy log</button>
-<textarea id=djiLog readonly aria-label="DJI connection log" hidden style="box-sizing:border-box;width:100%;height:180px;background:#111;color:#eee"></textarea>
-<p id=djiCopyStatus class=muted role=status></p>
 </div>
 
 <div class=card id=blackmagicCard><h3 id=blackmagicTitle>Blackmagic Pocket Cinema Camera</h3>
@@ -128,7 +125,6 @@ async function djiScan(){el('djiScan').disabled=true;el('djiCams').textContent='
 async function djiConnect(address,type){el('djiMessage').textContent='Connecting...';try{await api('/api/dji/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({address,type}).toString()});el('djiMessage').textContent='Connection queued.';}catch(e){el('djiMessage').textContent='Connect failed: '+e.message;}setTimeout(refresh,500);}
 async function djiRec(on){try{await api('/api/dji/record',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'on='+on});}catch(e){el('djiMessage').textContent='REC/STOP failed: '+e.message;}setTimeout(refresh,300);}
 async function djiForget(){try{await api('/api/dji/forget',{method:'POST'});el('djiMessage').textContent='Saved DJI camera cleared.';}catch(e){el('djiMessage').textContent='Forget failed: '+e.message;}refresh();}
-async function copyDjiLog(){el('djiCopy').disabled=true;try{const response=await fetch('/api/dji/log',{cache:'no-store'});if(!response.ok)throw new Error('HTTP '+response.status);const box=el('djiLog');box.value=await response.text();let copied=false;try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(box.value);copied=true;}}catch(e){}if(!copied){box.hidden=false;box.focus();box.select();box.setSelectionRange(0,box.value.length);try{copied=document.execCommand('copy');}catch(e){}}el('djiCopyStatus').textContent=copied?'Log copied.':'Log selected. Use Copy on your phone or Ctrl/Cmd+C.';}catch(e){el('djiCopyStatus').textContent='Could not read log: '+e.message;}finally{el('djiCopy').disabled=false;}}
 
 function drawChannels(s){const box=el('channels');box.innerHTML='';for(let i=0;i<16;i++){const d=document.createElement('div');d.className='ch'+((i+1)==s.settings.channel?' selected':'');const v=(s.msp.channels&&i<s.msp.channels.length)?s.msp.channels[i]:0;d.innerHTML=`<b>CH${i+1}</b><span>${v||'--'}</span>`;box.appendChild(d);}const idx=s.settings.channel-1;el('selectedValue').value=(s.msp.channels&&idx>=0&&idx<s.msp.channels.length)?s.msp.channels[idx]:'--';}
 async function refresh(){
@@ -204,7 +200,6 @@ void WebUi::routes(){
     server.on("/api/dji/connect",HTTP_POST,[this](){if(!djiAvailable())return;const String address=server.arg("address");const uint8_t type=(uint8_t)server.arg("type").toInt();const bool ok=dji->connectTo(address,type);server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");});
     server.on("/api/dji/record",HTTP_POST,[this](){if(!djiAvailable())return;const String on=server.arg("on");const bool ok=(on=="0"||on=="1")&&dji->setRecording(on=="1");server.send(ok?200:409,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");});
     server.on("/api/dji/forget",HTTP_POST,[this](){if(!djiAvailable())return;dji->forgetPairing();server.send(200,"application/json","{\"ok\":true}");});
-    server.on("/api/dji/log",HTTP_GET,[this](){if(!djiAvailable())return;server.sendHeader("Cache-Control","no-store");server.send(200,"text/plain; charset=utf-8",dji->connectionLog());});
 
     server.on("/api/selectCamera",HTTP_POST,[this](){
         const String value=server.arg("camera");
