@@ -63,15 +63,29 @@ Custom Message 2 shows battery and remaining video time, for example:
 
 `BAT 36% SD 2H:28`
 
-The uppercase `H` is intentional for DJI/Betaflight font compatibility.
-
 ### Blackmagic
 
-Blackmagic OSD shows REC/STBY state and remaining record time for the active media.
+Custom Message 1 shows camera state:
+
+- `STBY`
+- `REC`
+
+Custom Message 2 shows remaining recording time for the active media, for example:
+
+`MEDIA 1:23:45`
 
 ### DJI
 
-DJI OSD shows REC/STBY state, battery level and remaining recording time.
+Custom Message 1 shows camera state:
+
+- `CAM OFF`
+- `CAM CONNECT`
+- `CAM READY`
+- `CAM REC`
+
+Custom Message 2 shows battery and remaining recording time, for example:
+
+`BAT 36% SD 2H:28`
 
 ## GoPro notes
 
